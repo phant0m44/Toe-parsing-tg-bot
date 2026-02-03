@@ -6,17 +6,33 @@ import time
 import threading
 import schedule
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-BOT_TOKEN = "Your token"
+BOT_TOKEN = "Your telegram bot token"
 DB_FILE = "bot_users.db"
 
 API_URL = "https://api-toe-poweron.inneti.net/api/a_gpv_g"
-HEADERS = {
+BASE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0",
-    "Referer": "https://toe-poweron.inneti.net/",
-    "X-debug-key": "MjEyOTUvMzQ4NDIvMTk="
+    "Referer": "https://toe-poweron.inneti.net/"
 }
-MAGIC_TIME_PARAM = "212953484219"
+
+GROUP_CREDS = {
+    "1.1": {"time": "91989283", "key": "OTE5Lzg5MjgvMw=="},
+    "1.2": {"time": "1032101411", "key": "MTAzMi8xMDE0MS8x"},
+    "2.1": {"time": "13615462", "key": "MTM2LzE1NDYvMg=="},
+    "2.2": {"time": "38337572", "key": "MzgzLzM3NTcvMg=="},
+    "3.1": {"time": "212953484219", "key": "MjEyOTUvMzQ4NDIvMTk="},
+    "3.2": {"time": "113", "key": "MS8xLzM="},
+    "4.1": {"time": "10321005821", "key": "MTAzMi8xMDA1OC8yMQ=="},
+    "4.2": {"time": "211294218552", "key": "MjExMjkvNDIxODUvNTI="},
+    "5.1": {"time": "22064405571", "key": "MjIwNjQvNDA1NTcvMQ=="},
+    "5.2": {"time": "22039462178", "key": "MjIwMzkvNDYyMTcvOA=="},
+    "6.1": {"time": "227315422", "key": "MjI3LzMxNTQyLzI="},
+    "6.2": {"time": "21525365701", "key": "MjE1MjUvMzY1NzAvMQ=="}
+}
+
+KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -67,15 +83,22 @@ def fetch_schedule_for_group(group_id):
     date_before = (utc_now + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00+00:00")
     date_after = (utc_now - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00+00:00")
 
+    creds = GROUP_CREDS.get(group_id)
+    if not creds:
+        return None
+
     params = {
         "before": date_before,
         "after": date_after,
         "group[]": group_id, 
-        "time": MAGIC_TIME_PARAM 
+        "time": creds["time"]
     }
 
+    headers = BASE_HEADERS.copy()
+    headers["X-debug-key"] = creds["key"]
+
     try:
-        response = requests.get(API_URL, params=params, headers=HEADERS, timeout=10)
+        response = requests.get(API_URL, params=params, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         
@@ -83,8 +106,12 @@ def fetch_schedule_for_group(group_id):
             return None
 
         schedule_block = data['hydra:member'][0]
-        group_data = schedule_block['dataJson'].get(group_id) or list(schedule_block['dataJson'].values())[0]
-        return group_data['times']
+        
+        if group_id in schedule_block['dataJson']:
+            return schedule_block['dataJson'][group_id]['times']
+        else:
+            return schedule_block['dataJson'].get(group_id, {}).get('times')
+
     except Exception:
         return None
 
@@ -110,8 +137,6 @@ def notify_users_about_change(group_id, all_users):
 
 def update_all_schedules():
     groups = [f"{i}.{j}" for i in range(1, 7) for j in range(1, 3)]
-    
-    # Отримуємо список користувачів один раз, щоб не смикати БД для кожної групи
     all_users = db_get_all_users_with_groups()
     
     for gr in groups:
@@ -120,15 +145,9 @@ def update_all_schedules():
             continue
             
         old_data = schedules_cache.get(gr)
-        
-        # Оновлюємо кеш
         schedules_cache[gr] = new_data
 
-        # Логіка перевірки змін:
-        # 1. Старі дані мають існувати (щоб не спрацьовувало при перезапуску бота)
-        # 2. Старі дані мають відрізнятися від нових
         if old_data is not None and old_data != new_data:
-            print(f"Зміна графіку для {gr}!")
             notify_users_about_change(gr, all_users)
 
 STATUS_MAP = {
@@ -144,22 +163,23 @@ def get_status_text_full(code):
 
 def format_schedule_list(schedule):
     lines = []
-    for time_slot, code in schedule.items():
+    for time_slot in sorted(schedule.keys()):
+        code = schedule[time_slot]
         lines.append(f"{get_status_text_full(code).split(' — ')[0]} {time_slot} — {get_status_text_full(code).split(' — ')[1]}")
     return "\n".join(lines)
 
 def get_current_status_message(schedule):
-    now = datetime.now()
+    now = datetime.now(KYIV_TZ)
     minute = 30 if now.minute >= 30 else 0
     current_slot = f"{now.hour:02}:{minute:02}"
     
     current_code = schedule.get(current_slot, "0")
     
-    times = list(schedule.keys())
+    times = sorted(list(schedule.keys()))
     try:
         start_index = times.index(current_slot)
     except ValueError:
-        return "⚠️ Не вдалося визначити поточний час."
+        return "⚠️ Не вдалося визначити поточний час у графіку."
 
     end_slot = "24:00"
     for i in range(start_index + 1, len(times)):
@@ -170,7 +190,7 @@ def get_current_status_message(schedule):
 
     icon, text = STATUS_MAP.get(current_code, ("❓", "Невідомо"))
     
-    msg = f"Зараз: {icon} <b>{text}</b>\n"
+    msg = f"Зараз ({current_slot}): {icon} <b>{text}</b>\n"
     if current_code == "0":
         msg += f"Світло БУДЕ з {current_slot} по {end_slot}"
     elif current_code == "1":
@@ -213,7 +233,7 @@ def callback_set_group(call):
     group_id = call.data.split('_')[2]
     db_set_group(call.message.chat.id, group_id)
     bot.answer_callback_query(call.id, "Групу збережено!")
-    bot.send_message(call.message.chat.id, f"✅ Ви вибрали групу {group_id}.", reply_markup=main_menu_kb())
+    bot.send_message(call.message.chat.id, f"✅ Ви обрали групу {group_id}.", reply_markup=main_menu_kb())
     
     if group_id not in schedules_cache:
         data = fetch_schedule_for_group(group_id)
@@ -255,12 +275,13 @@ def send_schedule(message):
         text = format_schedule_list(schedule_data)
         bot.send_message(message.chat.id, f"📅 <b>Графік для групи {group_id}:</b>\n\n{text}", parse_mode="HTML")
     else:
-        bot.send_message(message.chat.id, "❌ На жаль, графік зараз недоступний.")
+        bot.send_message(message.chat.id, f"❌ На жаль, графік для групи {group_id} зараз недоступний.")
 
 @bot.message_handler(func=lambda message: message.text == "💡 Стан")
 def send_status(message):
     user_data = db_get_user(message.chat.id)
-    if not user_data: return
+    if not user_data: 
+        return bot.send_message(message.chat.id, "Спочатку виберіть групу через /start")
     
     group_id = user_data[0]
     schedule_data = schedules_cache.get(group_id) or fetch_schedule_for_group(group_id)
@@ -269,11 +290,16 @@ def send_status(message):
         text = get_current_status_message(schedule_data)
         bot.send_message(message.chat.id, text, parse_mode="HTML")
     else:
-        bot.send_message(message.chat.id, "Дані відсутні.")
+        bot.send_message(message.chat.id, "Дані відсутні або графік недоступний.")
 
 @bot.message_handler(func=lambda message: message.text == "⚙️ Налаштування")
 def settings(message):
     user_data = db_get_user(message.chat.id)
+    
+    if not user_data:
+        bot.send_message(message.chat.id, "❌ Помилка: користувача не знайдено. Будь ласка, натисніть /start")
+        return
+
     notif_status = "Увімкнено ✅" if user_data[1] else "Вимкнено 🔕"
     
     markup = types.InlineKeyboardMarkup()
@@ -298,7 +324,7 @@ def toggle_notifications(call):
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 def check_upcoming_changes():
-    now = datetime.now()
+    now = datetime.now(KYIV_TZ)
     
     if not (28 <= now.minute <= 32 or 58 <= now.minute <= 59 or 0 <= now.minute <= 2):
         return
