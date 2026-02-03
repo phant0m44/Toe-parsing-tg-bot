@@ -109,10 +109,17 @@ def db_get_all_users_with_groups():
     except Exception:
         return []
 
-# --- PARSING ---
-def fetch_schedule_for_group(group_id):
+def fetch_full_schedule_data(group_id):
+    """
+    {
+        'today': {times},
+        'today_date': 'YYYY-MM-DD',
+        'tomorrow': {times} або None,
+        'tomorrow_date': 'YYYY-MM-DD'
+    }
+    """
     utc_now = datetime.now(timezone.utc)
-    date_before = (utc_now + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00+00:00")
+    date_before = (utc_now + timedelta(days=2)).strftime("%Y-%m-%dT00:00:00+00:00")
     date_after = (utc_now - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00+00:00")
 
     creds = GROUP_CREDS.get(group_id)
@@ -121,7 +128,6 @@ def fetch_schedule_for_group(group_id):
 
     safe_before = quote(date_before)
     safe_after = quote(date_after)
-    
     full_url = f"{API_BASE}?before={safe_before}&after={safe_after}&group[]={group_id}&time={creds['time']}"
 
     headers = BASE_HEADERS.copy()
@@ -129,40 +135,70 @@ def fetch_schedule_for_group(group_id):
 
     try:
         response = requests.get(full_url, headers=headers, timeout=20)
-        
         if response.status_code == 404:
-            logger.error(f"Group {group_id}: 404 Not Found. URL: {full_url}")
             return None
-            
         response.raise_for_status()
         data = response.json()
         
-        if not data.get('hydra:member'):
+        items = data.get('hydra:member', [])
+        if not items:
             return None
 
-        schedule_block = data['hydra:member'][0]
-        
-        if group_id in schedule_block['dataJson']:
-            return schedule_block['dataJson'][group_id]['times']
-        else:
-            found_group = list(schedule_block['dataJson'].keys())[0]
-            return schedule_block['dataJson'][found_group]['times']
+        today_str = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
+        tomorrow_str = (datetime.now(KYIV_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        result = {
+            'today': None,
+            'today_date': today_str,
+            'tomorrow': None,
+            'tomorrow_date': tomorrow_str
+        }
+
+        for item in items:
+            date_graph = item.get('dateGraph', '').split('T')[0]
+
+            times = None
+            if group_id in item['dataJson']:
+                times = item['dataJson'][group_id]['times']
+            elif item['dataJson']:
+                first_key = list(item['dataJson'].keys())[0]
+                times = item['dataJson'][first_key]['times']
+
+            if date_graph == today_str:
+                result['today'] = times
+            elif date_graph == tomorrow_str:
+                result['tomorrow'] = times
+
+
+        return result
 
     except Exception as e:
         logger.error(f"Request error for {group_id}: {e}")
         return None
 
-def notify_users_about_change(group_id, all_users):
+def notify_users(group_id, all_users, schedule_data, is_tomorrow=False):
     target_users = [u_id for u_id, g_id in all_users if g_id == group_id]
     if not target_users: return
 
-    logger.info(f"Schedule changed for {group_id}. Notifying {len(target_users)} users.")
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("📊 Показати графік", callback_data="show_current_schedule"))
+    date_label = schedule_data['tomorrow_date'] if is_tomorrow else schedule_data['today_date']
+    times = schedule_data['tomorrow'] if is_tomorrow else schedule_data['today']
+    
+    if not times: return
+
+    formatted_schedule = format_schedule_list(times)
+    
+    if is_tomorrow:
+        header = f"⚡️ <b>З'явився графік на ЗАВТРА ({date_label})!</b>"
+    else:
+        header = f"⚠️ <b>Увага! Графік на СЬОГОДНІ ({date_label}) змінено!</b>"
+
+    msg_text = f"{header}\n\n{formatted_schedule}"
+
+    logger.info(f"Sending notification to group {group_id} (Tomorrow: {is_tomorrow})")
 
     for user_id in target_users:
         try:
-            bot.send_message(user_id, f"⚠️ <b>Увага! Графік для групи {group_id} змінено!</b>", parse_mode="HTML", reply_markup=markup)
+            bot.send_message(user_id, msg_text, parse_mode="HTML")
         except Exception:
             pass
 
@@ -171,23 +207,23 @@ def update_all_schedules():
     groups = [f"{i}.{j}" for i in range(1, 7) for j in range(1, 3)]
     all_users = db_get_all_users_with_groups()
     
-    success_count = 0
     for gr in groups:
-        new_data = fetch_schedule_for_group(gr)
+        new_data = fetch_full_schedule_data(gr)
         if not new_data:
             continue
         
-        success_count += 1
         old_data = schedules_cache.get(gr)
         schedules_cache[gr] = new_data
 
-        if old_data is not None and old_data != new_data:
-            notify_users_about_change(gr, all_users)
-            
-    if success_count == 0:
-        logger.warning("Failed to update any schedules.")
-    else:
-        logger.info(f"Successfully updated {success_count} of 12 schedules.")
+        if old_data is None:
+            continue
+
+        if new_data['today'] and new_data['today'] != old_data.get('today'):
+            notify_users(gr, all_users, new_data, is_tomorrow=False)
+
+        if new_data['tomorrow']:
+            if old_data.get('tomorrow') is None or new_data['tomorrow'] != old_data.get('tomorrow'):
+                notify_users(gr, all_users, new_data, is_tomorrow=True)
 
 STATUS_MAP = {
     "0": ("🟢", "Є світло"),
@@ -286,32 +322,31 @@ def callback_set_group(call):
         db_set_group(call.message.chat.id, group_id)
         bot.answer_callback_query(call.id, "Групу збережено!")
         bot.send_message(call.message.chat.id, f"✅ Ви обрали групу {group_id}.", reply_markup=main_menu_kb())
-        
+
         if group_id not in schedules_cache:
-            data = fetch_schedule_for_group(group_id)
+            data = fetch_full_schedule_data(group_id)
             if data: schedules_cache[group_id] = data
     except Exception as e:
         logger.error(f"Set group error: {e}")
 
-@bot.callback_query_handler(func=lambda call: call.data == "show_current_schedule")
-def callback_show_schedule(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith('show_tomorrow_'))
+def callback_show_tomorrow(call):
     try:
         user_data = db_get_user(call.message.chat.id)
-        if not user_data:
-            return bot.answer_callback_query(call.id, "Група не обрана")
+        if not user_data: return
         
         group_id = user_data[0]
-        schedule_data = schedules_cache.get(group_id)
+        cached = schedules_cache.get(group_id)
         
-        if not schedule_data:
-            schedule_data = fetch_schedule_for_group(group_id)
-        
-        if schedule_data:
-            text = format_schedule_list(schedule_data)
-            bot.send_message(call.message.chat.id, f"📅 <b>Оновлений графік ({group_id}):</b>\n\n{text}", parse_mode="HTML")
+        if not cached:
+            cached = fetch_full_schedule_data(group_id)
+            
+        if cached and cached.get('tomorrow'):
+            text = format_schedule_list(cached['tomorrow'])
+            bot.send_message(call.message.chat.id, f"📅 <b>Графік на ЗАВТРА ({cached['tomorrow_date']}):</b>\n\n{text}", parse_mode="HTML")
             bot.answer_callback_query(call.id)
         else:
-            bot.answer_callback_query(call.id, "Графік недоступний")
+            bot.answer_callback_query(call.id, "Графік на завтра ще не доступний")
     except Exception:
         pass
 
@@ -323,17 +358,23 @@ def send_schedule(message):
             return bot.send_message(message.chat.id, "Спочатку натисніть /start")
         
         group_id = user_data[0]
-        schedule_data = schedules_cache.get(group_id)
+        cached = schedules_cache.get(group_id)
         
-        if not schedule_data:
-            schedule_data = fetch_schedule_for_group(group_id)
-            if schedule_data: schedules_cache[group_id] = schedule_data
+        if not cached:
+            cached = fetch_full_schedule_data(group_id)
+            if cached: schedules_cache[group_id] = cached
         
-        if schedule_data:
-            text = format_schedule_list(schedule_data)
-            bot.send_message(message.chat.id, f"📅 <b>Графік для групи {group_id}:</b>\n\n{text}", parse_mode="HTML")
+        if cached and cached.get('today'):
+            text = format_schedule_list(cached['today'])
+
+            markup = None
+            if cached.get('tomorrow'):
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton(f"➡️ Графік на Завтра ({cached['tomorrow_date']})", callback_data=f"show_tomorrow_{group_id}"))
+            
+            bot.send_message(message.chat.id, f"📅 <b>Графік на СЬОГОДНІ ({cached['today_date']}):</b>\n\n{text}", parse_mode="HTML", reply_markup=markup)
         else:
-            bot.send_message(message.chat.id, "❌ Графік зараз недоступний.")
+            bot.send_message(message.chat.id, "❌ Графік на сьогодні зараз недоступний або не знайдений.")
     except Exception as e:
         logger.error(f"Send schedule error: {e}")
 
@@ -345,10 +386,14 @@ def send_status(message):
             return bot.send_message(message.chat.id, "Спочатку виберіть групу через /start")
         
         group_id = user_data[0]
-        schedule_data = schedules_cache.get(group_id) or fetch_schedule_for_group(group_id)
+        cached = schedules_cache.get(group_id)
         
-        if schedule_data:
-            text = get_current_status_message(schedule_data)
+        if not cached:
+            cached = fetch_full_schedule_data(group_id)
+            if cached: schedules_cache[group_id] = cached
+        
+        if cached and cached.get('today'):
+            text = get_current_status_message(cached['today'])
             bot.send_message(message.chat.id, text, parse_mode="HTML")
         else:
             bot.send_message(message.chat.id, "Дані відсутні.")
@@ -398,9 +443,10 @@ def check_upcoming_changes():
         for user_id, group_id in users:
             if last_sent_alerts.get(user_id) == check_slot: continue
             
-            schedule_data = schedules_cache.get(group_id)
-            if not schedule_data: continue
+            cached = schedules_cache.get(group_id)
+            if not cached or not cached.get('today'): continue
             
+            schedule_data = cached['today']
             current_status = schedule_data.get(current_slot)
             next_status = schedule_data.get(check_slot)
             
