@@ -19,12 +19,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "TOKEN here"
+BOT_TOKEN = "Your token here"
 DB_FILE = "bot_users.db"
 ADMIN_ID = 5292087312
 
 API_BASE = "https://api-poweron.toe.com.ua/api/a_gpv_g"
-
 BASE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0",
     "Accept": "application/json, text/plain, */*",
@@ -49,7 +48,6 @@ GROUP_CREDS = {
 
 ODESA_URL = "https://alerts.org.ua/odeska-oblast/"
 ODESA_IMAGE_BASE = "https://alerts.org.ua/app/8/_cache/_graph/{date}/_8.jpg"
-
 ODESA_GROUPS = [f"{i}.{j}" for i in range(1, 7) for j in range(1, 3)]
 
 try:
@@ -58,10 +56,8 @@ except Exception:
     KYIV_TZ = timezone.utc
 
 bot = telebot.TeleBot(BOT_TOKEN)
-
 schedules_cache = {}
 last_sent_alerts = {}
-
 
 def init_db():
     try:
@@ -158,30 +154,16 @@ def db_get_all_users_with_groups():
     except Exception:
         return []
 
-
 def fetch_ternopil_schedule(group_id):
-    """
-    dict:
-    {
-        'today': {times} або None,
-        'today_date': 'YYYY-MM-DD',
-        'tomorrow': {times} або None,
-        'tomorrow_date': 'YYYY-MM-DD'
-    }
-    """
     utc_now = datetime.now(timezone.utc)
     date_before = (utc_now + timedelta(days=2)).strftime("%Y-%m-%dT00:00:00+00:00")
     date_after  = (utc_now - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00+00:00")
-
     creds = GROUP_CREDS.get(group_id, GROUP_CREDS["3.1"])
-
     safe_before = quote(date_before)
     safe_after  = quote(date_after)
     full_url = f"{API_BASE}?before={safe_before}&after={safe_after}&group[]={group_id}&time={creds['time']}"
-
     headers = BASE_HEADERS.copy()
     headers["X-debug-key"] = creds["key"]
-
     try:
         response = requests.get(full_url, headers=headers, timeout=20)
         if response.status_code == 404:
@@ -191,15 +173,12 @@ def fetch_ternopil_schedule(group_id):
         items = data.get('hydra:member', [])
         if not items:
             return None
-
         today_str    = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
         tomorrow_str = (datetime.now(KYIV_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
-
         result = {
             'today': None, 'today_date': today_str,
             'tomorrow': None, 'tomorrow_date': tomorrow_str
         }
-
         for item in items:
             date_graph = item.get('dateGraph', '').split('T')[0]
             times = None
@@ -208,12 +187,10 @@ def fetch_ternopil_schedule(group_id):
             elif item['dataJson']:
                 first_key = list(item['dataJson'].keys())[0]
                 times = item['dataJson'][first_key]['times']
-
             if date_graph == today_str:
                 result['today'] = times
             elif date_graph == tomorrow_str:
                 result['tomorrow'] = times
-
         return result
     except Exception as e:
         logger.error(f"Ternopil request error for {group_id}: {e}")
@@ -231,16 +208,13 @@ def parse_time_to_minutes(t: str) -> int:
     return int(h) * 60 + int(m)
 
 def fetch_odesa_schedule(group_id):
-
     today_str    = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
     tomorrow_str = (datetime.now(KYIV_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
-
     result = {
         'today': None, 'today_date': today_str,
         'tomorrow': None, 'tomorrow_date': tomorrow_str,
         'image_url': None
     }
-
     def _parse_page(url):
         try:
             resp = requests.get(url, headers=WEB_HEADERS, timeout=15)
@@ -249,9 +223,7 @@ def fetch_odesa_schedule(group_id):
         except Exception as e:
             logger.error(f"Odesa fetch error {url}: {e}")
             return None
-
     def _extract_times_for_group(soup, group_id):
-
         major, minor = group_id.split(".")
         attr = f"r8g{major}-{minor}"
         group_div = soup.find(attrs={"data-group-id": attr})
@@ -262,30 +234,25 @@ def fetch_odesa_schedule(group_id):
                     break
         if not group_div:
             return None
-
         period_div = group_div.find(class_="period")
         if not period_div:
             return None
-
         slots = {}
         for slot_div in period_div.find_all("div", recursive=False):
             start_raw = slot_div.get("data-start", "").strip()
             end_raw   = slot_div.get("data-end", "").strip()
             if not start_raw or not end_raw:
                 continue
-
             b_tag = slot_div.find("b")
             if not b_tag:
                 continue
             status_text = b_tag.get_text(strip=True).upper()
             code = "0" if status_text == "ON" else "1"
-
             try:
                 start_m = parse_time_to_minutes(start_raw)
                 end_m   = parse_time_to_minutes(end_raw) if end_raw != "24:00" else 24 * 60
             except Exception:
                 continue
-
             cur = start_m
             while cur < end_m:
                 h = cur // 60
@@ -293,9 +260,7 @@ def fetch_odesa_schedule(group_id):
                 slot_key = f"{h:02}:{m:02}"
                 slots[slot_key] = code
                 cur += 30
-
         return slots if slots else None
-
     soup_today = _parse_page(ODESA_URL)
     if soup_today:
         result['today'] = _extract_times_for_group(soup_today, group_id)
@@ -303,19 +268,16 @@ def fetch_odesa_schedule(group_id):
         if img_tag:
             src = img_tag.get("src", "")
             result['image_url'] = src if src.startswith("http") else f"https://alerts.org.ua{src}"
-
     tomorrow_url = f"https://alerts.org.ua/odeska-oblast/{tomorrow_str}.html"
     soup_tomorrow = _parse_page(tomorrow_url)
     if soup_tomorrow:
         result['tomorrow'] = _extract_times_for_group(soup_tomorrow, group_id)
-
     return result
 
 def get_odesa_image_url(date_str=None):
     if not date_str:
         date_str = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
     return ODESA_IMAGE_BASE.format(date=date_str)
-
 
 def get_cache_key(region, group_id):
     return f"{region}_{group_id}"
@@ -334,7 +296,6 @@ def get_cached_schedule(region, group_id):
         if cached:
             schedules_cache[key] = cached
     return cached
-
 
 STATUS_MAP = {
     "0":  ("🟢", "Є світло"),
@@ -360,36 +321,90 @@ def get_current_status_message(schedule):
     now = datetime.now(KYIV_TZ)
     minute = 30 if now.minute >= 30 else 0
     current_slot = f"{now.hour:02}:{minute:02}"
-    current_code = schedule.get(current_slot, "0")
+    
+    # 1. Заповнюємо можливі пропуски в графіку, щоб була повна доба
+    full_schedule = {}
+    for h in range(24):
+        for m in (0, 30):
+            k = f"{h:02}:{m:02}"
+            full_schedule[k] = schedule.get(k, "10") # 10 (сірий) якщо даних немає
 
-    times = sorted(list(schedule.keys()))
+    times = sorted(list(full_schedule.keys()))
+    current_code = full_schedule.get(current_slot, "10")
+    
+    # Визначаємо поточний стан: Світло є (0, 10) або Немає (1)
+    is_light_now = current_code in ["0", "10"]
+
     try:
-        start_index = times.index(current_slot)
+        curr_idx = times.index(current_slot)
     except ValueError:
-        return "⚠️ Не вдалося визначити поточний час у графіку."
+        return "⚠️ Не вдалося визначити час."
 
+    # 2. Шукаємо ПОЧАТОК цього стану (йдемо назад)
+    start_idx = curr_idx
+    while start_idx > 0:
+        prev_slot = times[start_idx - 1]
+        prev_code = full_schedule[prev_slot]
+        prev_is_light = prev_code in ["0", "10"]
+        
+        if prev_is_light != is_light_now:
+            break # Знайшли зміну статусу
+        start_idx -= 1
+    
+    start_slot = times[start_idx]
+
+    # 3. Шукаємо КІНЕЦЬ цього стану (йдемо вперед)
+    end_idx = curr_idx
     end_slot = "24:00"
-    for i in range(start_index + 1, len(times)):
-        next_time = times[i]
-        if schedule[next_time] != current_code:
-            end_slot = next_time
+    
+    while end_idx < len(times) - 1:
+        next_slot = times[end_idx + 1]
+        next_code = full_schedule[next_slot]
+        next_is_light = next_code in ["0", "10"]
+        
+        if next_is_light != is_light_now:
+            end_slot = next_slot # Це початок іншого статусу = кінець нашого
             break
+        end_idx += 1
+        
+    # 4. Рахуємо загальну тривалість (Кінець - Початок)
+    def time_to_minutes(t_str):
+        if t_str == "24:00": return 24 * 60
+        h, m = map(int, t_str.split(':'))
+        return h * 60 + m
 
-    icon, text = STATUS_MAP.get(current_code, ("❓", "Невідомо"))
-    msg = f"Зараз ({current_slot}): {icon} <b>{text}</b>\n"
-    if current_code == "0":
-        msg += f"Світло БУДЕ з {current_slot} по {end_slot}"
-    elif current_code == "1":
-        msg += f"Світла НЕ БУДЕ з {current_slot} по {end_slot}"
+    total_minutes = time_to_minutes(end_slot) - time_to_minutes(start_slot)
+    
+    hours = total_minutes // 60
+    mins = total_minutes % 60
+    
+    duration_str = f"{hours} год"
+    if mins > 0:
+        duration_str += f" {mins} хв"
+
+    # 5. Формуємо повідомлення
+    icon = STATUS_MAP.get(current_code, "❓")[0] # Беремо тільки іконку
+    text_status = "Невідомо"
+    
+    if current_code == "0": text_status = "Є світло"
+    elif current_code == "1": text_status = "НЕМАЄ світла"
+    elif current_code == "10": text_status = "Можливе відключення"
+
+    msg = f"Зараз ({current_slot}): {icon} <b>{text_status}</b>\n"
+    
+    if is_light_now:
+        msg += f"Світло БУДЕ з {start_slot} по {end_slot}\n"
     else:
-        msg += f"МОЖЛИВЕ відключення з {current_slot} по {end_slot}"
+        msg += f"Світла НЕ БУДЕ з {start_slot} по {end_slot}\n"
+        
+    msg += f"⏱ Всього: <b>{duration_str}</b>"
+    
     return msg
 
 REGION_NAMES = {
     "ternopil": "🏔 Тернопільська",
     "odesa":    "🌊 Одеська"
 }
-
 
 def main_menu_kb():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -465,7 +480,6 @@ def callback_set_region(call):
     except Exception as e:
         logger.error(f"Set region error: {e}")
 
-# ── Вибір групи ──
 @bot.callback_query_handler(func=lambda call: call.data.startswith('set_group_'))
 def callback_set_group(call):
     try:
@@ -474,7 +488,6 @@ def callback_set_group(call):
         user_data = db_get_user(call.message.chat.id)
         region = user_data[0] if user_data else "ternopil"
         rname = REGION_NAMES.get(region, region)
-
         bot.answer_callback_query(call.id, "Групу збережено!")
         bot.send_message(
             call.message.chat.id,
@@ -482,7 +495,6 @@ def callback_set_group(call):
             reply_markup=main_menu_kb(),
             parse_mode="HTML"
         )
-
         key = get_cache_key(region, group_id)
         if key not in schedules_cache:
             data = fetch_schedule(region, group_id)
@@ -499,7 +511,6 @@ def callback_show_tomorrow(call):
             return
         region, group_id, _ = user_data
         cached = get_cached_schedule(region, group_id)
-
         if cached and cached.get('tomorrow'):
             text = format_schedule_list(cached['tomorrow'])
             bot.send_message(
@@ -529,12 +540,9 @@ def send_schedule(message):
         region, group_id, _ = user_data
         if not group_id:
             return bot.send_message(message.chat.id, "Спочатку оберіть групу через /start")
-
         cached = get_cached_schedule(region, group_id)
-
         if cached and cached.get('today'):
             text = format_schedule_list(cached['today'])
-
             markup = None
             if cached.get('tomorrow'):
                 markup = types.InlineKeyboardMarkup()
@@ -542,7 +550,6 @@ def send_schedule(message):
                     f"➡️ Графік на Завтра ({cached['tomorrow_date']})",
                     callback_data=f"show_tomorrow_{group_id}"
                 ))
-
             rname = REGION_NAMES.get(region, region)
             bot.send_message(
                 message.chat.id,
@@ -551,7 +558,6 @@ def send_schedule(message):
                 parse_mode="HTML",
                 reply_markup=markup
             )
-
             if region == "odesa":
                 img_url = cached.get('image_url') or get_odesa_image_url(cached['today_date'])
                 try:
@@ -576,9 +582,7 @@ def send_status(message):
         region, group_id, _ = user_data
         if not group_id:
             return bot.send_message(message.chat.id, "Спочатку оберіть групу через /start")
-
         cached = get_cached_schedule(region, group_id)
-
         if cached and cached.get('today'):
             text = get_current_status_message(cached['today'])
             rname = REGION_NAMES.get(region, region)
@@ -598,12 +602,10 @@ def settings(message):
         user_data = db_get_user(message.chat.id)
         if not user_data:
             return bot.send_message(message.chat.id, "Натисніть /start")
-
         region, group_id, notifications = user_data
         rname = REGION_NAMES.get(region, region)
         notif_status = "Увімкнено ✅" if notifications else "Вимкнено 🔕"
         group_str = group_id if group_id else "не обрано"
-
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(
             f"Сповіщення: {notif_status}", callback_data="toggle_notif"
@@ -614,7 +616,6 @@ def settings(message):
         markup.add(types.InlineKeyboardButton(
             "🗺 Змінити область", callback_data="change_region"
         ))
-
         bot.send_message(
             message.chat.id,
             f"⚙️ <b>Налаштування</b>\n\n"
@@ -663,7 +664,6 @@ def toggle_notifications(call):
         )
     except Exception:
         pass
-
 
 @bot.message_handler(commands=['msg_id'])
 def admin_send_private(message):
@@ -740,106 +740,86 @@ def admin_stats(message):
 def update_all_schedules():
     logger.info("Updating schedules...")
     groups = [f"{i}.{j}" for i in range(1, 7) for j in range(1, 3)]
-    all_users = db_get_all_users_with_groups()
-
     regions = {"ternopil", "odesa"}
+    
     for region in regions:
         for gr in groups:
             key = get_cache_key(region, gr)
             new_data = fetch_schedule(region, gr)
             if not new_data:
                 continue
-
-            old_data = schedules_cache.get(key)
             schedules_cache[key] = new_data
-
-            if old_data is None:
-                continue
-
-            target_users = [(u_id,) for u_id, r, g_id in all_users
-                            if g_id == gr and r == region]
-            if not target_users:
-                continue
-
-            if new_data['today'] and new_data['today'] != old_data.get('today'):
-                _notify_change(target_users, new_data, region, gr, is_tomorrow=False)
-
-            if new_data['tomorrow']:
-                if old_data.get('tomorrow') is None or new_data['tomorrow'] != old_data.get('tomorrow'):
-                    _notify_change(target_users, new_data, region, gr, is_tomorrow=True)
-
-def _notify_change(target_users, schedule_data, region, group_id, is_tomorrow=False):
-    date_label = schedule_data['tomorrow_date'] if is_tomorrow else schedule_data['today_date']
-    times = schedule_data['tomorrow'] if is_tomorrow else schedule_data['today']
-    if not times:
-        return
-
-    rname = REGION_NAMES.get(region, region)
-    formatted = format_schedule_list(times)
-
-    if is_tomorrow:
-        header = f"⚡️ <b>З'явився графік на ЗАВТРА ({date_label})!</b>"
-    else:
-        header = f"⚠️ <b>Графік на СЬОГОДНІ ({date_label}) змінено!</b>"
-
-    msg_text = f"{header}\n<i>{rname}, Група {group_id}</i>\n\n{formatted}"
-
-    for (user_id,) in target_users:
-        try:
-            bot.send_message(user_id, msg_text, parse_mode="HTML")
-            if region == "odesa":
-                img_url = schedule_data.get('image_url') or get_odesa_image_url(date_label)
-                try:
-                    bot.send_photo(user_id, img_url,
-                                   caption=f"📊 Графік Одеської обл. на {date_label}")
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
 def check_upcoming_changes():
     try:
         now = datetime.now(KYIV_TZ)
-        if not (28 <= now.minute <= 32 or 58 <= now.minute <= 59 or 0 <= now.minute <= 2):
+
+        if now.minute not in [0, 30]:
             return
 
         future_time = now + timedelta(minutes=30)
-        minute_str = "30" if future_time.minute >= 30 else "00"
-        check_slot = f"{future_time.hour:02}:{minute_str}"
-        current_slot_m = 30 if now.minute >= 30 else 0
-        current_slot = f"{now.hour:02}:{current_slot_m:02}"
-
+        current_slot = f"{now.hour:02}:{30 if now.minute >= 30 else 0:02}"
+        future_slot = f"{future_time.hour:02}:{30 if future_time.minute >= 30 else 0:02}"
+        
         users = db_get_all_users_with_groups()
+        
         for user_id, region, group_id in users:
             if not group_id:
                 continue
-            alert_key = f"{user_id}_{check_slot}"
+            
+            alert_key = f"{user_id}_{future_slot}"
             if last_sent_alerts.get(alert_key):
                 continue
-
+            
             cached = schedules_cache.get(get_cache_key(region, group_id))
             if not cached or not cached.get('today'):
                 continue
-
+            
             schedule_data = cached['today']
             current_status = schedule_data.get(current_slot)
-            next_status = schedule_data.get(check_slot)
-
-            if current_status is None or next_status is None or current_status == next_status:
+            future_status = schedule_data.get(future_slot)
+            
+            if current_status is None or future_status is None:
                 continue
 
-            if next_status == "0":
-                msg = f"🟢 Через 30 хв ({check_slot}) буде світло!"
-            elif next_status == "1":
-                msg = f"🔴 Через 30 хв ({check_slot}) вимкнення світла!"
-            else:
-                msg = f"🟡 Через 30 хв ({check_slot}) можливе вимкнення."
+            current_has_light = current_status in ["0", "10"]
+            future_has_light = future_status in ["0", "10"]
 
+            if current_has_light == future_has_light:
+                continue
+
+            times = sorted(list(schedule_data.keys()))
             try:
-                bot.send_message(user_id, msg)
+                future_index = times.index(future_slot)
+            except ValueError:
+                continue
+            
+            duration_minutes = 0
+            for i in range(future_index, len(times)):
+                slot_code = schedule_data[times[i]]
+                slot_has_light = slot_code in ["0", "10"]
+                if slot_has_light != future_has_light:
+                    break
+                duration_minutes += 30
+            
+            hours = duration_minutes // 60
+            minutes = duration_minutes % 60
+            duration_text = f"{hours} год {minutes} хв" if minutes > 0 else f"{hours} год"
+
+            if future_has_light and not current_has_light:
+                msg = f"🟢 Через 30 хв ({future_slot}) буде світло!\n⏱ Всього: <b>{duration_text}</b>"
+            elif not future_has_light and current_has_light:
+                msg = f"🔴 Через 30 хв ({future_slot}) вимкнення світла!\n⏱ Всього: <b>{duration_text}</b>"
+            else:
+                continue
+            
+            try:
+                bot.send_message(user_id, msg, parse_mode="HTML")
                 last_sent_alerts[alert_key] = True
-            except Exception:
-                pass
+                logger.info(f"Sent alert to {user_id} for {future_slot}: {future_status}")
+            except Exception as e:
+                logger.error(f"Failed to send alert to {user_id}: {e}")
+    
     except Exception as e:
         logger.error(f"Check alerts error: {e}")
 
