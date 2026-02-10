@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = "Here your token"
 DB_FILE = "bot_users.db"
+ADMIN_ID = 5292087312
 
 API_BASE = "https://api-poweron.toe.com.ua/api/a_gpv_g"
 
@@ -427,6 +428,62 @@ def toggle_notifications(call):
     markup.add(types.InlineKeyboardButton(f"Сповіщення: {text}", callback_data="toggle_notif"))
     markup.add(types.InlineKeyboardButton("Змінити групу", callback_data="change_group"))
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+
+@bot.message_handler(commands=['msg_id'])
+def admin_send_private(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        parts = message.text.split(maxsplit=2)
+        
+        if len(parts) < 3:
+            bot.reply_to(message, "⚠️ Формат: `/msg_id ID_ЮЗЕРА Текст`", parse_mode="Markdown")
+            return
+
+        target_id = int(parts[1])
+        msg_text = parts[2]
+        bot.send_message(target_id, msg_text, parse_mode="HTML")
+        bot.reply_to(message, f"✅ Повідомлення відправлено юзеру `{target_id}`", parse_mode="Markdown")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['msg_all'])
+def admin_send_broadcast(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        parts = message.text.split(maxsplit=1)
+        
+        if len(parts) < 2:
+            bot.reply_to(message, "⚠️ Формат: `/msg_all Текст розсилки`", parse_mode="Markdown")
+            return
+
+        msg_text = parts[1]
+
+        users = db_get_all_users_with_groups()
+        
+        bot.reply_to(message, f"⏳ Починаю розсилку на {len(users)} користувачів...")
+        
+        success = 0
+        blocked = 0
+        
+        for user in users:
+            user_id = user[0]
+            try:
+                bot.send_message(user_id, msg_text, parse_mode="HTML")
+                success += 1
+                time.sleep(1.05)
+            except Exception:
+                blocked += 1
+                
+        bot.send_message(message.chat.id, f"🏁 Розсилку завершено!\n\n✅ Отримали: {success}\n💀 Заблокували бота: {blocked}")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Критична помилка: {e}")
 
 def check_upcoming_changes():
     try:
