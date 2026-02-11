@@ -741,14 +741,68 @@ def update_all_schedules():
     logger.info("Updating schedules...")
     groups = [f"{i}.{j}" for i in range(1, 7) for j in range(1, 3)]
     regions = {"ternopil", "odesa"}
-    
+    all_users = db_get_all_users_with_groups()
+
     for region in regions:
         for gr in groups:
             key = get_cache_key(region, gr)
             new_data = fetch_schedule(region, gr)
             if not new_data:
                 continue
+
+            old_data = schedules_cache.get(key)
             schedules_cache[key] = new_data
+
+            if old_data is None:
+                continue
+
+            targets = [
+                (uid,) for uid, r, gid in all_users
+                if r == region and gid == gr
+            ]
+            if not targets:
+                continue
+
+            old_today = old_data.get('today')
+            new_today = new_data.get('today')
+            if new_today and new_today != old_today:
+                rname = REGION_NAMES.get(region, region)
+                text = format_schedule_list(new_today)
+                for (uid,) in targets:
+                    try:
+                        bot.send_message(
+                            uid,
+                            f"⚠️ <b>Графік на СЬОГОДНІ ({new_data['today_date']}) змінився!</b>\n"
+                            f"<i>{rname}, Група {gr}</i>\n\n{text}",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+
+            old_tomorrow = old_data.get('tomorrow')
+            new_tomorrow = new_data.get('tomorrow')
+            if new_tomorrow and (old_tomorrow is None or new_tomorrow != old_tomorrow):
+                rname = REGION_NAMES.get(region, region)
+                text = format_schedule_list(new_tomorrow)
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton(
+                    f"📅 Переглянути графік на {new_data['tomorrow_date']}",
+                    callback_data=f"show_tomorrow_{gr}"
+                ))
+                for (uid,) in targets:
+                    try:
+                        if old_tomorrow is None:
+                            header = f"📅 <b>З'явився графік на ЗАВТРА ({new_data['tomorrow_date']})!</b>"
+                        else:
+                            header = f"⚠️ <b>Графік на ЗАВТРА ({new_data['tomorrow_date']}) змінився!</b>"
+                        bot.send_message(
+                            uid,
+                            f"{header}\n<i>{rname}, Група {gr}</i>\n\n{text}",
+                            parse_mode="HTML",
+                            reply_markup=markup
+                        )
+                    except Exception:
+                        pass
 
 def check_upcoming_changes():
     try:
