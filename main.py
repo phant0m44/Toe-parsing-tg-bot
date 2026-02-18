@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "Your token here"
+BOT_TOKEN = "TOKEN HERE"
 DB_FILE = "bot_users.db"
 ADMIN_ID = 5292087312
 
@@ -46,9 +46,37 @@ GROUP_CREDS = {
     "6.2": {"time": "21525365701", "key": "MjE1MjUvMzY1NzAvMQ=="}
 }
 
-ODESA_URL = "https://alerts.org.ua/odeska-oblast/"
-ODESA_IMAGE_BASE = "https://alerts.org.ua/app/8/_cache/_graph/{date}/_8.jpg"
-ODESA_GROUPS = [f"{i}.{j}" for i in range(1, 7) for j in range(1, 3)]
+WEB_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "uk,en;q=0.5",
+}
+
+REGIONS_CONFIG = {
+    "vinnytsia": {"name": "🍇 Вінницька", "url": "https://alerts.org.ua/vinnytcka-oblast/", "region_id": 2},
+    "volyn": {"name": "🌲 Волинська", "url": "https://alerts.org.ua/volynska-oblast/", "region_id": 3},
+    "dnipro": {"name": "⚙️ Дніпропетровська", "url": "https://alerts.org.ua/dnipropetrovska-oblast/", "region_id": 4},
+    "zhytomyr": {"name": "🌳 Житомирська", "url": "https://alerts.org.ua/zhytomyrska-oblast/", "region_id": 6},
+    "zakarpattia": {"name": "🏔️ Закарпатська", "url": "https://alerts.org.ua/zakarpatska-oblast/", "region_id": 7},
+    "zaporizhzhia": {"name": "🏭 Запорізька", "url": "https://alerts.org.ua/zaporizka-oblast/", "region_id": 8},
+    "ivano-frankivsk": {"name": "⛰️ Івано-Франківська", "url": "https://alerts.org.ua/ivano-frankivska-oblast/", "region_id": 9},
+    "kyiv": {"name": "🏛️ Київська", "url": "https://alerts.org.ua/kyivska-oblast/", "region_id": 10},
+    "kirovohrad": {"name": "🌾 Кіровоградська", "url": "https://alerts.org.ua/kirovogradska-oblast/", "region_id": 11},
+    "lviv": {"name": "🦁 Львівська", "url": "https://alerts.org.ua/lvivska-oblast/", "region_id": 13},
+    "mykolaiv": {"name": "⚓ Миколаївська", "url": "https://alerts.org.ua/mykolaivska-oblast/", "region_id": 14},
+    "odesa": {"name": "🌊 Одеська", "url": "https://alerts.org.ua/odeska-oblast/", "region_id": 15},
+    "poltava": {"name": "🌻 Полтавська", "url": "https://alerts.org.ua/poltavska-oblast/", "region_id": 16},
+    "rivne": {"name": "🌲 Рівненська", "url": "https://alerts.org.ua/rivnenska-oblast/", "region_id": 17},
+    "sumy": {"name": "🌾 Сумська", "url": "https://alerts.org.ua/sumska-oblast/", "region_id": 18},
+    "ternopil": {"name": "🏔 Тернопільська", "url": None, "region_id": 19},  # API
+    "kharkiv": {"name": "🎓 Харківська", "url": "https://alerts.org.ua/harkivska-oblast/", "region_id": 20},
+    "kherson": {"name": "🍉 Херсонська", "url": "https://alerts.org.ua/hersonska-oblast/", "region_id": 21},
+    "khmelnytskyi": {"name": "🏰 Хмельницька", "url": "https://alerts.org.ua/hmelnitcka-oblast/", "region_id": 22},
+    "cherkasy": {"name": "🌊 Черкаська", "url": "https://alerts.org.ua/cherkaska-oblast/", "region_id": 23},
+    "chernivtsi": {"name": "🏔️ Чернівецька", "url": "https://alerts.org.ua/chernivetcka-oblast/", "region_id": 24},
+    "chernihiv": {"name": "🌲 Чернігівська", "url": "https://alerts.org.ua/chernigivska-oblast/", "region_id": 25},
+    "kyiv-city": {"name": "🏙️ м. Київ", "url": "https://alerts.org.ua/kyiv/", "region_id": 26},
+}
 
 try:
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
@@ -68,47 +96,118 @@ def init_db():
                     user_id INTEGER PRIMARY KEY,
                     region TEXT DEFAULT 'ternopil',
                     group_id TEXT,
-                    notifications INTEGER DEFAULT 1
+                    notifications INTEGER DEFAULT 1,
+                    username TEXT,
+                    is_active INTEGER DEFAULT 1,
+                    last_activity TEXT
                 )
             ''')
             try:
                 cursor.execute("ALTER TABLE users ADD COLUMN region TEXT DEFAULT 'ternopil'")
                 cursor.execute("UPDATE users SET region = 'ternopil' WHERE region IS NULL")
                 conn.commit()
-                logger.info("Migrated: added region column, all existing users → ternopil")
+                logger.info("Migrated: added region column")
             except sqlite3.OperationalError:
                 pass
+            
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
+                logger.info("Migrated: added username column")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
+                cursor.execute("UPDATE users SET is_active = 1 WHERE is_active IS NULL")
+                logger.info("Migrated: added is_active column")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN last_activity TEXT")
+                logger.info("Migrated: added last_activity column")
+            except sqlite3.OperationalError:
+                pass
+            
             conn.commit()
         logger.info("Database initialized.")
     except Exception as e:
         logger.critical(f"Database error: {e}")
 
-def db_set_region(user_id, region):
+def db_update_user_activity(user_id, username=None):
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
+            now = datetime.now(KYIV_TZ).isoformat()
+
+            cursor.execute("SELECT user_id, username FROM users WHERE user_id = ?", (user_id,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                if username and (not existing[1] or existing[1] != username):
+                    cursor.execute(
+                        "UPDATE users SET username = ?, is_active = 1, last_activity = ? WHERE user_id = ?",
+                        (username, now, user_id)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE users SET is_active = 1, last_activity = ? WHERE user_id = ?",
+                        (now, user_id)
+                    )
+            else:
+                cursor.execute(
+                    "INSERT INTO users (user_id, username, is_active, last_activity, notifications) VALUES (?, ?, 1, ?, 1)",
+                    (user_id, username, now)
+                )
+            
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error updating user activity: {e}")
+
+def db_set_region(user_id, region, username=None):
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            now = datetime.now(KYIV_TZ).isoformat()
             cursor.execute(
-                "INSERT OR IGNORE INTO users (user_id, region, notifications) VALUES (?, ?, 1)",
-                (user_id, region)
+                "INSERT OR IGNORE INTO users (user_id, region, notifications, username, is_active, last_activity) VALUES (?, ?, 1, ?, 1, ?)",
+                (user_id, region, username, now)
             )
-            cursor.execute(
-                "UPDATE users SET region = ?, group_id = NULL WHERE user_id = ?",
-                (region, user_id)
-            )
+            
+            if username:
+                cursor.execute(
+                    "UPDATE users SET region = ?, group_id = NULL, username = ?, is_active = 1, last_activity = ? WHERE user_id = ?",
+                    (region, username, now, user_id)
+                )
+            else:
+                cursor.execute(
+                    "UPDATE users SET region = ?, group_id = NULL, is_active = 1, last_activity = ? WHERE user_id = ?",
+                    (region, now, user_id)
+                )
             conn.commit()
     except Exception as e:
         logger.error(f"Error setting region: {e}")
 
-def db_set_group(user_id, group_id):
+def db_set_group(user_id, group_id, username=None):
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR REPLACE INTO users (user_id, region, group_id, notifications) "
-                "VALUES (?, COALESCE((SELECT region FROM users WHERE user_id=?),'ternopil'), ?, "
-                "COALESCE((SELECT notifications FROM users WHERE user_id=?), 1))",
-                (user_id, user_id, group_id, user_id)
-            )
+            now = datetime.now(KYIV_TZ).isoformat()
+            
+            if username:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO users (user_id, region, group_id, notifications, username, is_active, last_activity) "
+                    "VALUES (?, COALESCE((SELECT region FROM users WHERE user_id=?),'ternopil'), ?, "
+                    "COALESCE((SELECT notifications FROM users WHERE user_id=?), 1), ?, 1, ?)",
+                    (user_id, user_id, group_id, user_id, username, now)
+                )
+            else:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO users (user_id, region, group_id, notifications, is_active, last_activity) "
+                    "VALUES (?, COALESCE((SELECT region FROM users WHERE user_id=?),'ternopil'), ?, "
+                    "COALESCE((SELECT notifications FROM users WHERE user_id=?), 1), 1, ?)",
+                    (user_id, user_id, group_id, user_id, now)
+                )
             conn.commit()
     except Exception as e:
         logger.error(f"Error setting group: {e}")
@@ -196,36 +295,65 @@ def fetch_ternopil_schedule(group_id):
         logger.error(f"Ternopil request error for {group_id}: {e}")
         return None
 
-WEB_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "uk,en;q=0.5",
-}
+def fetch_general_image_url(region):
+    config = REGIONS_CONFIG.get(region)
+    if not config:
+        return None
+
+    if region == "ternopil":
+        url = "https://alerts.org.ua/ternopilska-oblast/"
+    else:
+        url = config.get("url")
+    
+    if not url:
+        return None
+    
+    try:
+        resp = requests.get(url, headers=WEB_HEADERS, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        img_tag = soup.find("img", src=re.compile(r"_cache/_graph"))
+        if img_tag:
+            src = img_tag.get("src", "")
+            if src.startswith("http"):
+                return src
+            else:
+                return f"https://alerts.org.ua{src}"
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching general image for {region}: {e}")
+        return None
 
 def parse_time_to_minutes(t: str) -> int:
     t = t.strip()
     h, m = t.split(":")
     return int(h) * 60 + int(m)
 
-def fetch_odesa_schedule(group_id):
-    today_str    = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
+def fetch_alerts_schedule(region, group_id):
+    config = REGIONS_CONFIG.get(region)
+    if not config or not config["url"]:
+        return None
+    
+    today_str = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
     tomorrow_str = (datetime.now(KYIV_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
     result = {
         'today': None, 'today_date': today_str,
-        'tomorrow': None, 'tomorrow_date': tomorrow_str,
-        'image_url': None
+        'tomorrow': None, 'tomorrow_date': tomorrow_str
     }
+    
     def _parse_page(url):
         try:
             resp = requests.get(url, headers=WEB_HEADERS, timeout=15)
             resp.raise_for_status()
             return BeautifulSoup(resp.text, "html.parser")
         except Exception as e:
-            logger.error(f"Odesa fetch error {url}: {e}")
+            logger.error(f"{region} fetch error {url}: {e}")
             return None
+    
     def _extract_times_for_group(soup, group_id):
         major, minor = group_id.split(".")
-        attr = f"r8g{major}-{minor}"
+        attr = f"r{config['region_id']}g{major}-{minor}"
         group_div = soup.find(attrs={"data-group-id": attr})
         if not group_div:
             for b_tag in soup.find_all("b", class_="group-name"):
@@ -261,23 +389,17 @@ def fetch_odesa_schedule(group_id):
                 slots[slot_key] = code
                 cur += 30
         return slots if slots else None
-    soup_today = _parse_page(ODESA_URL)
+    
+    soup_today = _parse_page(config["url"])
     if soup_today:
         result['today'] = _extract_times_for_group(soup_today, group_id)
-        img_tag = soup_today.find("img", src=re.compile(r"_cache/_graph"))
-        if img_tag:
-            src = img_tag.get("src", "")
-            result['image_url'] = src if src.startswith("http") else f"https://alerts.org.ua{src}"
-    tomorrow_url = f"https://alerts.org.ua/odeska-oblast/{tomorrow_str}.html"
+    
+    tomorrow_url = f"{config['url'].rstrip('/')}/{tomorrow_str}.html"
     soup_tomorrow = _parse_page(tomorrow_url)
     if soup_tomorrow:
         result['tomorrow'] = _extract_times_for_group(soup_tomorrow, group_id)
+    
     return result
-
-def get_odesa_image_url(date_str=None):
-    if not date_str:
-        date_str = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
-    return ODESA_IMAGE_BASE.format(date=date_str)
 
 def get_cache_key(region, group_id):
     return f"{region}_{group_id}"
@@ -286,7 +408,7 @@ def fetch_schedule(region, group_id):
     if region == "ternopil":
         return fetch_ternopil_schedule(group_id)
     else:
-        return fetch_odesa_schedule(group_id)
+        return fetch_alerts_schedule(region, group_id)
 
 def get_cached_schedule(region, group_id):
     key = get_cache_key(region, group_id)
@@ -297,13 +419,15 @@ def get_cached_schedule(region, group_id):
             schedules_cache[key] = cached
     return cached
 
-STATUS_MAP = {
-    "0":  ("🟢", "Є світло"),
-    "1":  ("🔴", "НЕМАЄ світла"),
-    "10": ("🟡", "Можливе вимкнення")
-}
-
-def format_schedule_list(schedule):
+def format_schedule_list(schedule, region):
+    show_maybe = (region == "ternopil")
+    
+    STATUS_MAP = {
+        "0":  ("🟢", "Є світло"),
+        "1":  ("🔴", "НЕМАЄ світла"),
+        "10": ("🟡", "Можливе вимкнення") if show_maybe else ("🟢", "Є світло")
+    }
+    
     lines = []
     for h in range(12):
         for m in (0, 30):
@@ -314,60 +438,72 @@ def format_schedule_list(schedule):
             i1 = STATUS_MAP.get(c1, ("❓",))[0]
             i2 = STATUS_MAP.get(c2, ("❓",))[0]
             lines.append(f"{t1} {i1}    {t2} {i2}")
-    legend = "\n\n🟢 — Є світло\n🟡 — Можливе вимкнення\n🔴 — Немає світла"
+    
+    if show_maybe:
+        legend = "\n\n🟢 — Є світло\n🟡 — Можливе вимкнення\n🔴 — Немає світла"
+    else:
+        legend = "\n\n🟢 — Є світло\n🔴 — Немає світла"
+    
     return "\n".join(lines) + legend
 
-def get_current_status_message(schedule):
+def get_current_status_message(schedule, region):
     now = datetime.now(KYIV_TZ)
     minute = 30 if now.minute >= 30 else 0
     current_slot = f"{now.hour:02}:{minute:02}"
+    show_maybe = (region == "ternopil")
     
-    # 1. Заповнюємо можливі пропуски в графіку, щоб була повна доба
     full_schedule = {}
     for h in range(24):
         for m in (0, 30):
             k = f"{h:02}:{m:02}"
-            full_schedule[k] = schedule.get(k, "10") # 10 (сірий) якщо даних немає
+            code = schedule.get(k, "10")
+            if not show_maybe and code == "10":
+                code = "0"
+            full_schedule[k] = code
 
     times = sorted(list(full_schedule.keys()))
-    current_code = full_schedule.get(current_slot, "10")
-    
-    # Визначаємо поточний стан: Світло є (0, 10) або Немає (1)
-    is_light_now = current_code in ["0", "10"]
+    current_code = full_schedule.get(current_slot, "10" if show_maybe else "0")
+    if show_maybe:
+        is_light_now = current_code in ["0", "10"]
+    else:
+        is_light_now = current_code == "0"
 
     try:
         curr_idx = times.index(current_slot)
     except ValueError:
         return "⚠️ Не вдалося визначити час."
 
-    # 2. Шукаємо ПОЧАТОК цього стану (йдемо назад)
     start_idx = curr_idx
     while start_idx > 0:
         prev_slot = times[start_idx - 1]
         prev_code = full_schedule[prev_slot]
-        prev_is_light = prev_code in ["0", "10"]
+        if show_maybe:
+            prev_is_light = prev_code in ["0", "10"]
+        else:
+            prev_is_light = prev_code == "0"
         
         if prev_is_light != is_light_now:
-            break # Знайшли зміну статусу
+            break
         start_idx -= 1
     
     start_slot = times[start_idx]
 
-    # 3. Шукаємо КІНЕЦЬ цього стану (йдемо вперед)
     end_idx = curr_idx
     end_slot = "24:00"
     
     while end_idx < len(times) - 1:
         next_slot = times[end_idx + 1]
         next_code = full_schedule[next_slot]
-        next_is_light = next_code in ["0", "10"]
+        if show_maybe:
+            next_is_light = next_code in ["0", "10"]
+        else:
+            next_is_light = next_code == "0"
         
         if next_is_light != is_light_now:
-            end_slot = next_slot # Це початок іншого статусу = кінець нашого
+            end_slot = next_slot
             break
         end_idx += 1
-        
-    # 4. Рахуємо загальну тривалість (Кінець - Початок)
+
     def time_to_minutes(t_str):
         if t_str == "24:00": return 24 * 60
         h, m = map(int, t_str.split(':'))
@@ -382,13 +518,22 @@ def get_current_status_message(schedule):
     if mins > 0:
         duration_str += f" {mins} хв"
 
-    # 5. Формуємо повідомлення
-    icon = STATUS_MAP.get(current_code, "❓")[0] # Беремо тільки іконку
-    text_status = "Невідомо"
+    # Статус з урахуванням регіону
+    if show_maybe:
+        STATUS_MAP = {
+            "0":  ("🟢", "Є світло"),
+            "1":  ("🔴", "НЕМАЄ світла"),
+            "10": ("🟡", "Можливе відключення")
+        }
+    else:
+        STATUS_MAP = {
+            "0":  ("🟢", "Є світло"),
+            "1":  ("🔴", "НЕМАЄ світла"),
+            "10": ("🟢", "Є світло")
+        }
     
-    if current_code == "0": text_status = "Є світло"
-    elif current_code == "1": text_status = "НЕМАЄ світла"
-    elif current_code == "10": text_status = "Можливе відключення"
+    icon = STATUS_MAP.get(current_code, ("❓", "Невідомо"))[0]
+    text_status = STATUS_MAP.get(current_code, ("❓", "Невідомо"))[1]
 
     msg = f"Зараз ({current_slot}): {icon} <b>{text_status}</b>\n"
     
@@ -401,28 +546,29 @@ def get_current_status_message(schedule):
     
     return msg
 
-REGION_NAMES = {
-    "ternopil": "🏔 Тернопільська",
-    "odesa":    "🌊 Одеська"
-}
-
 def main_menu_kb():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📅 Отримати графік", "💡 Стан")
+    markup.row("📊 Загальний графік")
     markup.row("⚙️ Налаштування")
     return markup
 
 def region_kb():
-    markup = types.InlineKeyboardMarkup()
-    markup.row(
-        types.InlineKeyboardButton("🏔 Тернопільська область", callback_data="set_region_ternopil")
-    )
-    markup.row(
-        types.InlineKeyboardButton("🌊 Одеська область", callback_data="set_region_odesa")
-    )
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    buttons = []
+    for region_key, config in sorted(REGIONS_CONFIG.items(), key=lambda x: x[1]['name']):
+        buttons.append(types.InlineKeyboardButton(
+            config['name'],
+            callback_data=f"set_region_{region_key}"
+        ))
+    for i in range(0, len(buttons), 2):
+        if i + 1 < len(buttons):
+            markup.row(buttons[i], buttons[i+1])
+        else:
+            markup.row(buttons[i])
     return markup
 
-def groups_kb(region="ternopil"):
+def groups_kb():
     markup = types.InlineKeyboardMarkup()
     for i in range(1, 7):
         row = []
@@ -441,12 +587,17 @@ def groups_kb(region="ternopil"):
 def send_welcome(message):
     init_db()
     try:
-        user_data = db_get_user(message.chat.id)
+        username = message.from_user.username
+        user_id = message.chat.id
+
+        db_update_user_activity(user_id, username)
+        
+        user_data = db_get_user(user_id)
         if user_data and user_data[1]:
             region, group_id, _ = user_data
-            rname = REGION_NAMES.get(region, region)
+            rname = REGIONS_CONFIG.get(region, {}).get('name', region)
             bot.send_message(
-                message.chat.id,
+                user_id,
                 f"Вітаю! 👋\n"
                 f"Ваша область: <b>{rname}</b>\n"
                 f"Ваша група: <b>{group_id}</b>\n\n"
@@ -456,7 +607,7 @@ def send_welcome(message):
             )
         else:
             bot.send_message(
-                message.chat.id,
+                user_id,
                 "👋 Вітаю!\n\nСпочатку оберіть вашу <b>область</b>:",
                 reply_markup=region_kb(),
                 parse_mode="HTML"
@@ -468,13 +619,18 @@ def send_welcome(message):
 def callback_set_region(call):
     try:
         region = call.data.replace('set_region_', '')
-        db_set_region(call.message.chat.id, region)
-        rname = REGION_NAMES.get(region, region)
+        username = call.from_user.username
+        user_id = call.message.chat.id
+        
+        db_set_region(user_id, region, username)
+        db_update_user_activity(user_id, username)
+        
+        rname = REGIONS_CONFIG.get(region, {}).get('name', region)
         bot.answer_callback_query(call.id, f"Обрано: {rname}")
         bot.send_message(
-            call.message.chat.id,
+            user_id,
             f"✅ Область: <b>{rname}</b>\n\nТепер оберіть вашу <b>групу</b>:",
-            reply_markup=groups_kb(region),
+            reply_markup=groups_kb(),
             parse_mode="HTML"
         )
     except Exception as e:
@@ -484,13 +640,18 @@ def callback_set_region(call):
 def callback_set_group(call):
     try:
         group_id = call.data.replace('set_group_', '')
-        db_set_group(call.message.chat.id, group_id)
-        user_data = db_get_user(call.message.chat.id)
+        username = call.from_user.username
+        user_id = call.message.chat.id
+        
+        db_set_group(user_id, group_id, username)
+        db_update_user_activity(user_id, username)
+        
+        user_data = db_get_user(user_id)
         region = user_data[0] if user_data else "ternopil"
-        rname = REGION_NAMES.get(region, region)
+        rname = REGIONS_CONFIG.get(region, {}).get('name', region)
         bot.answer_callback_query(call.id, "Групу збережено!")
         bot.send_message(
-            call.message.chat.id,
+            user_id,
             f"✅ Область: <b>{rname}</b>\nГрупа: <b>{group_id}</b>",
             reply_markup=main_menu_kb(),
             parse_mode="HTML"
@@ -512,19 +673,12 @@ def callback_show_tomorrow(call):
         region, group_id, _ = user_data
         cached = get_cached_schedule(region, group_id)
         if cached and cached.get('tomorrow'):
-            text = format_schedule_list(cached['tomorrow'])
+            text = format_schedule_list(cached['tomorrow'], region)
             bot.send_message(
                 call.message.chat.id,
                 f"📅 <b>Графік на ЗАВТРА ({cached['tomorrow_date']}):</b>\n\n{text}",
                 parse_mode="HTML"
             )
-            if region == "odesa":
-                img_url = get_odesa_image_url(cached['tomorrow_date'])
-                try:
-                    bot.send_photo(call.message.chat.id, img_url,
-                                   caption=f"📊 Загальний графік Одеської обл. на {cached['tomorrow_date']}")
-                except Exception:
-                    pass
             bot.answer_callback_query(call.id)
         else:
             bot.answer_callback_query(call.id, "Графік на завтра ще не доступний")
@@ -534,15 +688,19 @@ def callback_show_tomorrow(call):
 @bot.message_handler(func=lambda message: message.text == "📅 Отримати графік")
 def send_schedule(message):
     try:
-        user_data = db_get_user(message.chat.id)
+        username = message.from_user.username
+        user_id = message.chat.id
+        db_update_user_activity(user_id, username)
+        
+        user_data = db_get_user(user_id)
         if not user_data or not user_data[1]:
-            return bot.send_message(message.chat.id, "Спочатку натисніть /start")
+            return bot.send_message(user_id, "Спочатку натисніть /start")
         region, group_id, _ = user_data
         if not group_id:
-            return bot.send_message(message.chat.id, "Спочатку оберіть групу через /start")
+            return bot.send_message(user_id, "Спочатку оберіть групу через /start")
         cached = get_cached_schedule(region, group_id)
         if cached and cached.get('today'):
-            text = format_schedule_list(cached['today'])
+            text = format_schedule_list(cached['today'], region)
             markup = None
             if cached.get('tomorrow'):
                 markup = types.InlineKeyboardMarkup()
@@ -550,60 +708,101 @@ def send_schedule(message):
                     f"➡️ Графік на Завтра ({cached['tomorrow_date']})",
                     callback_data=f"show_tomorrow_{group_id}"
                 ))
-            rname = REGION_NAMES.get(region, region)
+            rname = REGIONS_CONFIG.get(region, {}).get('name', region)
             bot.send_message(
-                message.chat.id,
+                user_id,
                 f"📅 <b>Графік на СЬОГОДНІ ({cached['today_date']}):</b>\n"
                 f"<i>{rname}, Група {group_id}</i>\n\n{text}",
                 parse_mode="HTML",
                 reply_markup=markup
             )
-            if region == "odesa":
-                img_url = cached.get('image_url') or get_odesa_image_url(cached['today_date'])
-                try:
-                    bot.send_photo(
-                        message.chat.id,
-                        img_url,
-                        caption=f"📊 Загальний графік Одеської обл. на {cached['today_date']}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not send Odesa image: {e}")
         else:
-            bot.send_message(message.chat.id, "❌ Графік на сьогодні зараз недоступний або не знайдений.")
+            bot.send_message(user_id, "❌ Графік на сьогодні зараз недоступний або не знайдений.")
     except Exception as e:
         logger.error(f"Send schedule error: {e}")
 
 @bot.message_handler(func=lambda message: message.text == "💡 Стан")
 def send_status(message):
     try:
-        user_data = db_get_user(message.chat.id)
+        username = message.from_user.username
+        user_id = message.chat.id
+        db_update_user_activity(user_id, username)
+        
+        user_data = db_get_user(user_id)
         if not user_data or not user_data[1]:
-            return bot.send_message(message.chat.id, "Спочатку виберіть групу через /start")
+            return bot.send_message(user_id, "Спочатку виберіть групу через /start")
         region, group_id, _ = user_data
         if not group_id:
-            return bot.send_message(message.chat.id, "Спочатку оберіть групу через /start")
+            return bot.send_message(user_id, "Спочатку оберіть групу через /start")
         cached = get_cached_schedule(region, group_id)
         if cached and cached.get('today'):
-            text = get_current_status_message(cached['today'])
-            rname = REGION_NAMES.get(region, region)
+            text = get_current_status_message(cached['today'], region)
+            rname = REGIONS_CONFIG.get(region, {}).get('name', region)
             bot.send_message(
-                message.chat.id,
+                user_id,
                 f"<i>{rname}, Група {group_id}</i>\n\n{text}",
                 parse_mode="HTML"
             )
         else:
-            bot.send_message(message.chat.id, "Дані відсутні.")
+            bot.send_message(user_id, "Дані відсутні.")
     except Exception as e:
         logger.error(f"Send status error: {e}")
+
+@bot.message_handler(func=lambda message: message.text == "📊 Загальний графік")
+def send_general_schedule(message):
+    try:
+        username = message.from_user.username
+        user_id = message.chat.id
+        db_update_user_activity(user_id, username)
+        
+        user_data = db_get_user(user_id)
+        if not user_data:
+            return bot.send_message(user_id, "Спочатку натисніть /start")
+        
+        region, group_id, _ = user_data
+        if not region:
+            return bot.send_message(user_id, "Спочатку оберіть область через /start")
+        
+        rname = REGIONS_CONFIG.get(region, {}).get('name', region)
+        image_url = fetch_general_image_url(region)
+        
+        if image_url:
+            today_str = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
+            try:
+                bot.send_photo(
+                    user_id,
+                    image_url,
+                    caption=f"📊 <b>Загальний графік</b>\n{rname}\n{today_str}",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Error sending general image: {e}")
+                bot.send_message(
+                    user_id,
+                    f"❌ Не вдалося завантажити зображення загального графіка.\n\n"
+                    f"Ви можете переглянути його на сайті:\n"
+                    f"{REGIONS_CONFIG.get(region, {}).get('url', 'https://alerts.org.ua')}"
+                )
+        else:
+            bot.send_message(
+                user_id,
+                f"❌ Загальний графік для {rname} наразі недоступний."
+            )
+    except Exception as e:
+        logger.error(f"Send general schedule error: {e}")
 
 @bot.message_handler(func=lambda message: message.text == "⚙️ Налаштування")
 def settings(message):
     try:
-        user_data = db_get_user(message.chat.id)
+        username = message.from_user.username
+        user_id = message.chat.id
+        db_update_user_activity(user_id, username)
+        
+        user_data = db_get_user(user_id)
         if not user_data:
-            return bot.send_message(message.chat.id, "Натисніть /start")
+            return bot.send_message(user_id, "Натисніть /start")
         region, group_id, notifications = user_data
-        rname = REGION_NAMES.get(region, region)
+        rname = REGIONS_CONFIG.get(region, {}).get('name', region)
         notif_status = "Увімкнено ✅" if notifications else "Вимкнено 🔕"
         group_str = group_id if group_id else "не обрано"
         markup = types.InlineKeyboardMarkup()
@@ -617,7 +816,7 @@ def settings(message):
             "🗺 Змінити область", callback_data="change_region"
         ))
         bot.send_message(
-            message.chat.id,
+            user_id,
             f"⚙️ <b>Налаштування</b>\n\n"
             f"Область: <b>{rname}</b>\n"
             f"Група: <b>{group_str}</b>\n\n"
@@ -639,12 +838,10 @@ def change_region_btn(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "change_group")
 def change_group_btn(call):
-    user_data = db_get_user(call.message.chat.id)
-    region = user_data[0] if user_data else "ternopil"
     bot.send_message(
         call.message.chat.id,
         "Виберіть нову групу:",
-        reply_markup=groups_kb(region)
+        reply_markup=groups_kb()
     )
     bot.answer_callback_query(call.id)
 
@@ -681,6 +878,58 @@ def admin_send_private(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Помилка: {e}")
 
+@bot.message_handler(commands=['help'])
+def admin_help(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    help_text = """🤖 <b>Команди Адміністратора</b>
+
+📊 <b>СТАТИСТИКА:</b>
+
+/stats - Базова статистика
+├ Кількість користувачів загалом
+├ Розподіл по областях
+└ Користувачі без групи
+
+/analytics - Детальна аналітика
+├ Активні/заблоковані користувачі
+├ Користувачі з/без username
+├ Активність за 24 год / 7 днів / 30 днів
+├ Топ-5 областей за тиждень
+├ Топ-5 груп по популярності
+└ Останні 10 користувачів з часом
+
+📤 <b>ЕКСПОРТ ДАНИХ:</b>
+
+/export_no_username - Список без username
+└ До 50 користувачів без username
+
+/export_blocked - Список заблокованих
+└ Користувачі, які заблокували бота
+
+💬 <b>РОЗСИЛКА:</b>
+
+/msg_id [ID] [текст] - Надіслати одному
+└ Приклад: /msg_id 123456789 Привіт!
+
+/msg_all [текст] - Розсилка всім
+├ Відправляє всім з notifications=1
+├ Автоматично позначає заблокованих
+└ Показує статистику доставки
+
+❓ <b>ІНШЕ:</b>
+
+/help
+
+<b>💡 Підказки:</b>
+• Бот автоматично зберігає username
+• При розсилці позначає заблокованих як is_active=0
+• last_activity оновлюється при кожній дії
+• Всі повідомлення підтримують HTML розмітку"""
+    
+    bot.reply_to(message, help_text, parse_mode="HTML")
+
 @bot.message_handler(commands=['msg_all'])
 def admin_send_broadcast(message):
     if message.from_user.id != ADMIN_ID:
@@ -694,13 +943,26 @@ def admin_send_broadcast(message):
         users = db_get_all_users_with_groups()
         bot.reply_to(message, f"⏳ Розсилка на {len(users)} користувачів...")
         success = blocked = 0
-        for user in users:
-            try:
-                bot.send_message(user[0], msg_text, parse_mode="HTML")
-                success += 1
-                time.sleep(1.05)
-            except Exception:
-                blocked += 1
+        
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            for user in users:
+                user_id = user[0]
+                try:
+                    bot.send_message(user_id, msg_text, parse_mode="HTML")
+                    success += 1
+                    time.sleep(1.05)
+                except Exception as e:
+                    blocked += 1
+                    cursor.execute(
+                        "UPDATE users SET is_active = 0 WHERE user_id = ?",
+                        (user_id,)
+                    )
+                    logger.info(f"User {user_id} marked as inactive (blocked bot)")
+            
+            conn.commit()
+        
         bot.send_message(
             message.chat.id,
             f"🏁 Розсилку завершено!\n✅ Отримали: {success}\n💀 Заблокували: {blocked}"
@@ -716,93 +978,301 @@ def admin_stats(message):
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             total = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-            ternopil = cursor.execute(
-                "SELECT COUNT(*) FROM users WHERE region='ternopil'"
-            ).fetchone()[0]
-            odesa = cursor.execute(
-                "SELECT COUNT(*) FROM users WHERE region='odesa'"
-            ).fetchone()[0]
+            stats_lines = [f"📊 <b>Статистика</b>\n\nВсього користувачів: {total}\n"]
+            
+            for region_key, config in sorted(REGIONS_CONFIG.items(), key=lambda x: x[1]['name']):
+                count = cursor.execute(
+                    f"SELECT COUNT(*) FROM users WHERE region=?", (region_key,)
+                ).fetchone()[0]
+                if count > 0:
+                    stats_lines.append(f"{config['name']}: {count}")
+            
             no_group = cursor.execute(
                 "SELECT COUNT(*) FROM users WHERE group_id IS NULL"
             ).fetchone()[0]
-        bot.reply_to(
-            message,
-            f"📊 <b>Статистика</b>\n\n"
-            f"Всього користувачів: {total}\n"
-            f"🏔 Тернопільська: {ternopil}\n"
-            f"🌊 Одеська: {odesa}\n"
-            f"❓ Без групи: {no_group}",
-            parse_mode="HTML"
-        )
+            stats_lines.append(f"\n❓ Без групи: {no_group}")
+            
+        bot.reply_to(message, "\n".join(stats_lines), parse_mode="HTML")
+    except Exception as e:
+        bot.reply_to(message, f"❌ {e}")
+
+@bot.message_handler(commands=['analytics'])
+def admin_analytics(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+
+            total = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            active = cursor.execute("SELECT COUNT(*) FROM users WHERE is_active = 1").fetchone()[0]
+            blocked = cursor.execute("SELECT COUNT(*) FROM users WHERE is_active = 0").fetchone()[0]
+            with_username = cursor.execute("SELECT COUNT(*) FROM users WHERE username IS NOT NULL").fetchone()[0]
+            without_username = cursor.execute("SELECT COUNT(*) FROM users WHERE username IS NULL").fetchone()[0]
+
+            now = datetime.now(KYIV_TZ)
+            
+            day_ago = (now - timedelta(days=1)).isoformat()
+            active_24h = cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE last_activity >= ? AND is_active = 1",
+                (day_ago,)
+            ).fetchone()[0]
+            
+            week_ago = (now - timedelta(days=7)).isoformat()
+            active_7d = cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE last_activity >= ? AND is_active = 1",
+                (week_ago,)
+            ).fetchone()[0]
+            
+            month_ago = (now - timedelta(days=30)).isoformat()
+            active_30d = cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE last_activity >= ? AND is_active = 1",
+                (month_ago,)
+            ).fetchone()[0]
+
+            top_regions = cursor.execute('''
+                SELECT region, COUNT(*) as cnt 
+                FROM users 
+                WHERE last_activity >= ? AND is_active = 1
+                GROUP BY region 
+                ORDER BY cnt DESC 
+                LIMIT 5
+            ''', (week_ago,)).fetchall()
+
+            top_groups = cursor.execute('''
+                SELECT group_id, COUNT(*) as cnt 
+                FROM users 
+                WHERE group_id IS NOT NULL AND is_active = 1
+                GROUP BY group_id 
+                ORDER BY cnt DESC 
+                LIMIT 5
+            ''').fetchall()
+
+            recent_users = cursor.execute('''
+                SELECT user_id, username, region, group_id, last_activity 
+                FROM users 
+                ORDER BY last_activity DESC 
+                LIMIT 10
+            ''').fetchall()
+
+            msg = f"""📈 <b>Детальна Аналітика</b>
+
+👥 <b>Загальна статистика:</b>
+• Всього користувачів: {total}
+• ✅ Активні (не заблокували): {active} ({active*100//total if total > 0 else 0}%)
+• 🚫 Заблокували бота: {blocked} ({blocked*100//total if total > 0 else 0}%)
+• 📝 З username: {with_username} ({with_username*100//total if total > 0 else 0}%)
+• ❓ Без username: {without_username}
+
+⏰ <b>Активність:</b>
+• За останні 24 год: {active_24h}
+• За останні 7 днів: {active_7d}
+• За останні 30 днів: {active_30d}
+
+🏆 <b>Топ-5 областей (7 днів):</b>"""
+            
+            for region, cnt in top_regions:
+                region_name = REGIONS_CONFIG.get(region, {}).get('name', region)
+                msg += f"\n• {region_name}: {cnt}"
+            
+            msg += "\n\n🔢 <b>Топ-5 груп:</b>"
+            for group, cnt in top_groups:
+                msg += f"\n• Група {group}: {cnt}"
+            
+            msg += "\n\n👤 <b>Останні 10 користувачів:</b>"
+            for uid, uname, reg, grp, last_act in recent_users:
+                username_str = f"@{uname}" if uname else "без username"
+                region_name = REGIONS_CONFIG.get(reg, {}).get('name', reg) if reg else "?"
+                group_str = grp if grp else "?"
+
+                try:
+                    last_time = datetime.fromisoformat(last_act) if last_act else None
+                    if last_time:
+                        time_ago = now - last_time
+                        if time_ago.days > 0:
+                            time_str = f"{time_ago.days}д"
+                        elif time_ago.seconds // 3600 > 0:
+                            time_str = f"{time_ago.seconds // 3600}г"
+                        else:
+                            time_str = f"{time_ago.seconds // 60}хв"
+                    else:
+                        time_str = "?"
+                except:
+                    time_str = "?"
+                
+                msg += f"\n• {uid} ({username_str}) - {region_name} гр.{group_str} [{time_str}]"
+            
+        bot.reply_to(message, msg, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Analytics error: {e}")
+        bot.reply_to(message, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['export_no_username'])
+def export_no_username(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            users = cursor.execute('''
+                SELECT user_id, region, group_id, last_activity, is_active
+                FROM users 
+                WHERE username IS NULL
+                ORDER BY last_activity DESC
+            ''').fetchall()
+            
+            if not users:
+                bot.reply_to(message, "✅ Всі користувачі мають username!")
+                return
+            
+            msg = f"📋 <b>Користувачі без username: {len(users)}</b>\n\n"
+            
+            for uid, reg, grp, last_act, is_active in users[:50]:  # Обмежуємо 50-ма
+                status = "✅" if is_active else "🚫"
+                region_name = REGIONS_CONFIG.get(reg, {}).get('name', reg) if reg else "?"
+                group_str = grp if grp else "?"
+                
+                try:
+                    last_time = datetime.fromisoformat(last_act) if last_act else None
+                    if last_time:
+                        time_str = last_time.strftime("%d.%m %H:%M")
+                    else:
+                        time_str = "немає"
+                except:
+                    time_str = "?"
+                
+                msg += f"{status} <code>{uid}</code> | {region_name} {group_str} | {time_str}\n"
+            
+            if len(users) > 50:
+                msg += f"\n... та ще {len(users) - 50} користувачів"
+            
+        bot.reply_to(message, msg, parse_mode="HTML")
+    except Exception as e:
+        bot.reply_to(message, f"❌ {e}")
+
+@bot.message_handler(commands=['export_blocked'])
+def export_blocked(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            users = cursor.execute('''
+                SELECT user_id, username, region, group_id, last_activity
+                FROM users 
+                WHERE is_active = 0
+                ORDER BY last_activity DESC
+            ''').fetchall()
+            
+            if not users:
+                bot.reply_to(message, "✅ Немає заблокованих користувачів!")
+                return
+            
+            msg = f"🚫 <b>Заблоковані користувачі: {len(users)}</b>\n\n"
+            
+            for uid, uname, reg, grp, last_act in users[:50]:
+                username_str = f"@{uname}" if uname else "немає"
+                region_name = REGIONS_CONFIG.get(reg, {}).get('name', reg) if reg else "?"
+                group_str = grp if grp else "?"
+                
+                try:
+                    last_time = datetime.fromisoformat(last_act) if last_act else None
+                    if last_time:
+                        time_str = last_time.strftime("%d.%m")
+                    else:
+                        time_str = "?"
+                except:
+                    time_str = "?"
+                
+                msg += f"<code>{uid}</code> ({username_str}) | {region_name} {group_str} | {time_str}\n"
+            
+            if len(users) > 50:
+                msg += f"\n... та ще {len(users) - 50} користувачів"
+            
+        bot.reply_to(message, msg, parse_mode="HTML")
     except Exception as e:
         bot.reply_to(message, f"❌ {e}")
 
 def update_all_schedules():
     logger.info("Updating schedules...")
     groups = [f"{i}.{j}" for i in range(1, 7) for j in range(1, 3)]
-    regions = {"ternopil", "odesa"}
     all_users = db_get_all_users_with_groups()
 
-    for region in regions:
-        for gr in groups:
-            key = get_cache_key(region, gr)
-            new_data = fetch_schedule(region, gr)
-            if not new_data:
-                continue
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        
+        for region_key in REGIONS_CONFIG.keys():
+            for gr in groups:
+                key = get_cache_key(region_key, gr)
+                new_data = fetch_schedule(region_key, gr)
+                if not new_data:
+                    continue
 
-            old_data = schedules_cache.get(key)
-            schedules_cache[key] = new_data
+                old_data = schedules_cache.get(key)
+                schedules_cache[key] = new_data
 
-            if old_data is None:
-                continue
+                if old_data is None:
+                    continue
 
-            targets = [
-                (uid,) for uid, r, gid in all_users
-                if r == region and gid == gr
-            ]
-            if not targets:
-                continue
+                targets = [
+                    (uid,) for uid, r, gid in all_users
+                    if r == region_key and gid == gr
+                ]
+                if not targets:
+                    continue
 
-            old_today = old_data.get('today')
-            new_today = new_data.get('today')
-            if new_today and new_today != old_today:
-                rname = REGION_NAMES.get(region, region)
-                text = format_schedule_list(new_today)
-                for (uid,) in targets:
-                    try:
-                        bot.send_message(
-                            uid,
-                            f"⚠️ <b>Графік на СЬОГОДНІ ({new_data['today_date']}) змінився!</b>\n"
-                            f"<i>{rname}, Група {gr}</i>\n\n{text}",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
+                old_today = old_data.get('today')
+                new_today = new_data.get('today')
+                if new_today and new_today != old_today:
+                    rname = REGIONS_CONFIG.get(region_key, {}).get('name', region_key)
+                    text = format_schedule_list(new_today, region_key)
+                    for (uid,) in targets:
+                        try:
+                            bot.send_message(
+                                uid,
+                                f"⚠️ <b>Графік на СЬОГОДНІ ({new_data['today_date']}) змінився!</b>\n"
+                                f"<i>{rname}, Група {gr}</i>\n\n{text}",
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            cursor.execute(
+                                "UPDATE users SET is_active = 0 WHERE user_id = ?",
+                                (uid,)
+                            )
+                            logger.info(f"User {uid} marked as inactive during schedule update")
 
-            old_tomorrow = old_data.get('tomorrow')
-            new_tomorrow = new_data.get('tomorrow')
-            if new_tomorrow and (old_tomorrow is None or new_tomorrow != old_tomorrow):
-                rname = REGION_NAMES.get(region, region)
-                text = format_schedule_list(new_tomorrow)
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton(
-                    f"📅 Переглянути графік на {new_data['tomorrow_date']}",
-                    callback_data=f"show_tomorrow_{gr}"
-                ))
-                for (uid,) in targets:
-                    try:
-                        if old_tomorrow is None:
-                            header = f"📅 <b>З'явився графік на ЗАВТРА ({new_data['tomorrow_date']})!</b>"
-                        else:
-                            header = f"⚠️ <b>Графік на ЗАВТРА ({new_data['tomorrow_date']}) змінився!</b>"
-                        bot.send_message(
-                            uid,
-                            f"{header}\n<i>{rname}, Група {gr}</i>\n\n{text}",
-                            parse_mode="HTML",
-                            reply_markup=markup
-                        )
-                    except Exception:
-                        pass
+                old_tomorrow = old_data.get('tomorrow')
+                new_tomorrow = new_data.get('tomorrow')
+                if new_tomorrow and (old_tomorrow is None or new_tomorrow != old_tomorrow):
+                    rname = REGIONS_CONFIG.get(region_key, {}).get('name', region_key)
+                    text = format_schedule_list(new_tomorrow, region_key)
+                    markup = types.InlineKeyboardMarkup()
+                    markup.add(types.InlineKeyboardButton(
+                        f"📅 Переглянути графік на {new_data['tomorrow_date']}",
+                        callback_data=f"show_tomorrow_{gr}"
+                    ))
+                    for (uid,) in targets:
+                        try:
+                            if old_tomorrow is None:
+                                header = f"📅 <b>З'явився графік на ЗАВТРА ({new_data['tomorrow_date']})!</b>"
+                            else:
+                                header = f"⚠️ <b>Графік на ЗАВТРА ({new_data['tomorrow_date']}) змінився!</b>"
+                            bot.send_message(
+                                uid,
+                                f"{header}\n<i>{rname}, Група {gr}</i>\n\n{text}",
+                                parse_mode="HTML",
+                                reply_markup=markup
+                            )
+                        except Exception as e:
+                            cursor.execute(
+                                "UPDATE users SET is_active = 0 WHERE user_id = ?",
+                                (uid,)
+                            )
+                            logger.info(f"User {uid} marked as inactive during schedule update")
+        
+        conn.commit()
 
 def check_upcoming_changes():
     try:
@@ -817,62 +1287,86 @@ def check_upcoming_changes():
         
         users = db_get_all_users_with_groups()
         
-        for user_id, region, group_id in users:
-            if not group_id:
-                continue
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
             
-            alert_key = f"{user_id}_{future_slot}"
-            if last_sent_alerts.get(alert_key):
-                continue
-            
-            cached = schedules_cache.get(get_cache_key(region, group_id))
-            if not cached or not cached.get('today'):
-                continue
-            
-            schedule_data = cached['today']
-            current_status = schedule_data.get(current_slot)
-            future_status = schedule_data.get(future_slot)
-            
-            if current_status is None or future_status is None:
-                continue
+            for user_id, region, group_id in users:
+                if not group_id:
+                    continue
+                
+                alert_key = f"{user_id}_{future_slot}"
+                if last_sent_alerts.get(alert_key):
+                    continue
+                
+                cached = schedules_cache.get(get_cache_key(region, group_id))
+                if not cached or not cached.get('today'):
+                    continue
+                
+                schedule_data = cached['today']
+                current_status = schedule_data.get(current_slot)
+                future_status = schedule_data.get(future_slot)
+                
+                if current_status is None or future_status is None:
+                    continue
 
-            current_has_light = current_status in ["0", "10"]
-            future_has_light = future_status in ["0", "10"]
+                show_maybe = (region == "ternopil")
+                
+                if not show_maybe:
+                    if current_status == "10":
+                        current_status = "0"
+                    if future_status == "10":
+                        future_status = "0"
+                
+                current_has_light = current_status in ["0", "10"] if show_maybe else current_status == "0"
+                future_has_light = future_status in ["0", "10"] if show_maybe else future_status == "0"
 
-            if current_has_light == future_has_light:
-                continue
+                if current_has_light == future_has_light:
+                    continue
 
-            times = sorted(list(schedule_data.keys()))
-            try:
-                future_index = times.index(future_slot)
-            except ValueError:
-                continue
-            
-            duration_minutes = 0
-            for i in range(future_index, len(times)):
-                slot_code = schedule_data[times[i]]
-                slot_has_light = slot_code in ["0", "10"]
-                if slot_has_light != future_has_light:
-                    break
-                duration_minutes += 30
-            
-            hours = duration_minutes // 60
-            minutes = duration_minutes % 60
-            duration_text = f"{hours} год {minutes} хв" if minutes > 0 else f"{hours} год"
+                times = sorted(list(schedule_data.keys()))
+                try:
+                    future_index = times.index(future_slot)
+                except ValueError:
+                    continue
+                
+                duration_minutes = 0
+                for i in range(future_index, len(times)):
+                    slot_code = schedule_data[times[i]]
+                    if not show_maybe and slot_code == "10":
+                        slot_code = "0"
+                    
+                    if show_maybe:
+                        slot_has_light = slot_code in ["0", "10"]
+                    else:
+                        slot_has_light = slot_code == "0"
+                    
+                    if slot_has_light != future_has_light:
+                        break
+                    duration_minutes += 30
+                
+                hours = duration_minutes // 60
+                minutes = duration_minutes % 60
+                duration_text = f"{hours} год {minutes} хв" if minutes > 0 else f"{hours} год"
 
-            if future_has_light and not current_has_light:
-                msg = f"🟢 Через 30 хв ({future_slot}) буде світло!\n⏱ Всього: <b>{duration_text}</b>"
-            elif not future_has_light and current_has_light:
-                msg = f"🔴 Через 30 хв ({future_slot}) вимкнення світла!\n⏱ Всього: <b>{duration_text}</b>"
-            else:
-                continue
+                if future_has_light and not current_has_light:
+                    msg = f"🟢 Через 30 хв ({future_slot}) буде світло!\n⏱ Всього: <b>{duration_text}</b>"
+                elif not future_has_light and current_has_light:
+                    msg = f"🔴 Через 30 хв ({future_slot}) вимкнення світла!\n⏱ Всього: <b>{duration_text}</b>"
+                else:
+                    continue
+                
+                try:
+                    bot.send_message(user_id, msg, parse_mode="HTML")
+                    last_sent_alerts[alert_key] = True
+                    logger.info(f"Sent alert to {user_id} for {future_slot}: {future_status}")
+                except Exception as e:
+                    cursor.execute(
+                        "UPDATE users SET is_active = 0 WHERE user_id = ?",
+                        (user_id,)
+                    )
+                    logger.error(f"Failed to send alert to {user_id}, marked as inactive: {e}")
             
-            try:
-                bot.send_message(user_id, msg, parse_mode="HTML")
-                last_sent_alerts[alert_key] = True
-                logger.info(f"Sent alert to {user_id} for {future_slot}: {future_status}")
-            except Exception as e:
-                logger.error(f"Failed to send alert to {user_id}: {e}")
+            conn.commit()
     
     except Exception as e:
         logger.error(f"Check alerts error: {e}")
@@ -893,7 +1387,7 @@ if __name__ == "__main__":
     init_db()
     t = threading.Thread(target=scheduler_loop, daemon=True)
     t.start()
-    logger.info("Bot started!")
+    logger.info("Bot started with all regions!")
     while True:
         try:
             bot.infinity_polling(timeout=10, long_polling_timeout=5)
