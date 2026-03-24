@@ -446,7 +446,96 @@ def create_bulb_icon(is_on, size=24):
     else:
         draw.line([cx - 6*scale, cy - 6*scale, cx + 6*scale, cy + 6*scale], fill=color, width=lw + 2)
 
-    return img.resize((size, size), Image.Resampling.LANCZOS)
+    # Змінено LANCZOS на BICUBIC
+    return img.resize((size, size), Image.Resampling.BICUBIC)
+
+def create_lightning_icon(size=24):
+    scale = 4
+    full_size = size * scale
+    
+    img = Image.new('RGBA', (full_size, full_size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    cx, cy = full_size // 2, full_size // 2
+    points = [
+        (cx + 2*scale, cy - 8*scale),   
+        (cx - 6*scale, cy + 1*scale),   
+        (cx - 1*scale, cy + 1*scale),   
+        (cx - 3*scale, cy + 9*scale),   
+        (cx + 6*scale, cy - 2*scale),   
+        (cx + 1*scale, cy - 2*scale),   
+    ]
+    
+    draw.polygon(points, fill="#FFC107")
+    
+    # Змінено LANCZOS на BICUBIC
+    return img.resize((size, size), Image.Resampling.BICUBIC)
+
+def add_diagonal_watermark(image, watermark_text):
+    """Додає напівпрозорий діагональний водяний знак"""
+    watermark_image = Image.new('RGBA', image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(watermark_image)
+    
+    width, height = image.size
+    
+    # Створюємо шрифт
+    fonts = ["arialbd.ttf", "Segoe UI Bold.ttf", "DejaVuSans-Bold.ttf", "arial.ttf"]
+    font_size = 60
+    watermark_font = None
+    for f in fonts:
+        try:
+            watermark_font = ImageFont.truetype(f, font_size)
+            break
+        except IOError:
+            pass
+    if watermark_font is None:
+        watermark_font = ImageFont.load_default()
+        
+    color = (120, 120, 120, 45) # Напівпрозорий сірий
+    
+    # Створюємо зображення для тексту
+    text_width = int(draw.textlength(watermark_text, font=watermark_font))
+    text_height = font_size + 20
+    text_image = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
+    text_draw = ImageDraw.Draw(text_image)
+    text_draw.text((0, 0), watermark_text, font=watermark_font, fill=color)
+    
+    # Обертаємо текст (Змінено LANCZOS на BICUBIC)
+    rotated_text_image = text_image.rotate(45, resample=Image.Resampling.BICUBIC, expand=True)
+    r_width, r_height = rotated_text_image.size
+    
+    # Розміщуємо один великий по центру
+    x = (width - r_width) // 2
+    y = (height - r_height) // 2
+    watermark_image.paste(rotated_text_image, (x, y), rotated_text_image)
+    
+    # Додаткові менші водяні знаки по кутах
+    small_font_size = 35
+    small_font = None
+    for f in fonts:
+        try:
+            small_font = ImageFont.truetype(f, small_font_size)
+            break
+        except IOError:
+            pass
+    if small_font is None:
+        small_font = ImageFont.load_default()
+        
+    text_width_sm = int(draw.textlength(watermark_text, font=small_font))
+    text_image_sm = Image.new('RGBA', (text_width_sm, small_font_size + 20), (0, 0, 0, 0))
+    text_draw_sm = ImageDraw.Draw(text_image_sm)
+    text_draw_sm.text((0, 0), watermark_text, font=small_font, fill=color)
+    
+    # Змінено LANCZOS на BICUBIC
+    rotated_sm = text_image_sm.rotate(45, resample=Image.Resampling.BICUBIC, expand=True)
+    
+    # Лівий нижній
+    watermark_image.paste(rotated_sm, (50, height - rotated_sm.height - 50), rotated_sm)
+    # Правий верхній
+    watermark_image.paste(rotated_sm, (width - rotated_sm.width - 50, 50), rotated_sm)
+    
+    # Об'єднуємо з оригіналом
+    image.alpha_composite(watermark_image)
 
 def create_lightning_icon(size=24):
     scale = 4
