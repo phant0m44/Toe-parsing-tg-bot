@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "Your Token Here"
+BOT_TOKEN = "8538036698:AAECIf25f6j-Yj8qkL5HDxofaaHb2GzGFXo"
 DB_FILE = "bot_users.db"
 ADMIN_ID = 5292087312
 
@@ -308,21 +308,18 @@ def fetch_and_cache_bezsvitla(region):
             
             for card in soup.find_all(class_="card"):
                 header = card.find(class_="card-header")
-                if not header:
-                    continue
+                if not header: continue
                     
                 text = header.get_text(strip=True)
                 m = re.search(r'(\d+\.\d+|\d+)', text)
-                if not m:
-                    continue
+                if not m: continue
                 grp = m.group(1)
                 
                 slots = {}
                 for li in card.find_all("li"):
                     t_text = li.get_text(separator=" ", strip=True)
                     tm = re.search(r'(\d{2}:\d{2})\s*[–\-]\s*(\d{2}:\d{2})', t_text)
-                    if not tm:
-                        continue
+                    if not tm: continue
                         
                     is_on = li.find(class_="icon-on") is not None
                     code = "0" if is_on else "1"
@@ -363,13 +360,11 @@ def fetch_ternopil_schedule(group_id):
     
     try:
         r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code == 404:
-            return None
+        if r.status_code == 404: return None
         r.raise_for_status()
         
         items = r.json().get('hydra:member', [])
-        if not items:
-            return None
+        if not items: return None
             
         today_str = datetime.now(KYIV_TZ).strftime("%Y-%m-%d")
         tom_str = (datetime.now(KYIV_TZ) + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -379,10 +374,8 @@ def fetch_ternopil_schedule(group_id):
             dg = item.get('dateGraph', '').split('T')[0]
             times = item['dataJson'].get(group_id, {}).get('times') or list(item['dataJson'].values())[0]['times']
             
-            if dg == today_str:
-                res['today'] = times
-            elif dg == tom_str:
-                res['tomorrow'] = times
+            if dg == today_str: res['today'] = times
+            elif dg == tom_str: res['tomorrow'] = times
         return res
     except Exception:
         return None
@@ -391,8 +384,7 @@ def prefetch_region_schedules(region):
     groups = get_groups_for_region(region)
     missing = [g for g in groups if not schedules_cache.get(get_cache_key(region, g))]
     
-    if not missing:
-        return
+    if not missing: return
 
     if region != "ternopil":
         fetch_and_cache_bezsvitla(region)
@@ -403,10 +395,8 @@ def prefetch_region_schedules(region):
                 g = futures[fut]
                 try:
                     res = fut.result()
-                    if res:
-                        schedules_cache[get_cache_key(region, g)] = res
-                except Exception:
-                    pass
+                    if res: schedules_cache[get_cache_key(region, g)] = res
+                except Exception: pass
 
 def get_cache_key(region, group_id):
     return f"{region}_{group_id}"
@@ -428,14 +418,11 @@ def get_cached_schedule(region, group_id):
 def create_bulb_icon(is_on, size=24):
     scale = 4
     full_size = size * scale
-
     img = Image.new('RGBA', (full_size, full_size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    
     color = "#1F2336" if is_on else "#FFFFFF"
     cx, cy = full_size // 2, full_size // 2
     lw = max(1, 1 * scale)
-
     draw.ellipse([cx - 4*scale, cy - 5*scale, cx + 4*scale, cy + 3*scale], outline=color, width=lw)
     draw.rectangle([cx - 2*scale, cy + 3*scale, cx + 2*scale, cy + 6*scale], fill=color)
     
@@ -445,17 +432,14 @@ def create_bulb_icon(is_on, size=24):
         draw.line([cx + 4*scale, cy - 2*scale, cx + 7*scale, cy - 3*scale], fill=color, width=lw)
     else:
         draw.line([cx - 6*scale, cy - 6*scale, cx + 6*scale, cy + 6*scale], fill=color, width=lw + 2)
-
-    # Змінено LANCZOS на BICUBIC
+        
     return img.resize((size, size), Image.Resampling.BICUBIC)
 
 def create_lightning_icon(size=24):
     scale = 4
     full_size = size * scale
-    
     img = Image.new('RGBA', (full_size, full_size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-
     cx, cy = full_size // 2, full_size // 2
     points = [
         (cx + 2*scale, cy - 8*scale),   
@@ -465,20 +449,18 @@ def create_lightning_icon(size=24):
         (cx + 6*scale, cy - 2*scale),   
         (cx + 1*scale, cy - 2*scale),   
     ]
-    
     draw.polygon(points, fill="#FFC107")
-    
-    # Змінено LANCZOS на BICUBIC
     return img.resize((size, size), Image.Resampling.BICUBIC)
 
+def get_bot_username():
+    """Повертає ім'я бота для водяного знака"""
+    return "@ToeElectricity_bot"  # Замініть на справжній юз бота, якщо відрізняється
+
 def add_diagonal_watermark(image, watermark_text):
-    """Додає напівпрозорий діагональний водяний знак"""
     watermark_image = Image.new('RGBA', image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(watermark_image)
-    
     width, height = image.size
     
-    # Створюємо шрифт
     fonts = ["arialbd.ttf", "Segoe UI Bold.ttf", "DejaVuSans-Bold.ttf", "arial.ttf"]
     font_size = 60
     watermark_font = None
@@ -488,28 +470,24 @@ def add_diagonal_watermark(image, watermark_text):
             break
         except IOError:
             pass
+            
     if watermark_font is None:
         watermark_font = ImageFont.load_default()
         
-    color = (120, 120, 120, 45) # Напівпрозорий сірий
-    
-    # Створюємо зображення для тексту
+    color = (120, 120, 120, 45)
     text_width = int(draw.textlength(watermark_text, font=watermark_font))
     text_height = font_size + 20
     text_image = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
     text_draw = ImageDraw.Draw(text_image)
     text_draw.text((0, 0), watermark_text, font=watermark_font, fill=color)
     
-    # Обертаємо текст (Змінено LANCZOS на BICUBIC)
     rotated_text_image = text_image.rotate(45, resample=Image.Resampling.BICUBIC, expand=True)
     r_width, r_height = rotated_text_image.size
     
-    # Розміщуємо один великий по центру
     x = (width - r_width) // 2
     y = (height - r_height) // 2
     watermark_image.paste(rotated_text_image, (x, y), rotated_text_image)
     
-    # Додаткові менші водяні знаки по кутах
     small_font_size = 35
     small_font = None
     for f in fonts:
@@ -518,6 +496,7 @@ def add_diagonal_watermark(image, watermark_text):
             break
         except IOError:
             pass
+            
     if small_font is None:
         small_font = ImageFont.load_default()
         
@@ -525,60 +504,13 @@ def add_diagonal_watermark(image, watermark_text):
     text_image_sm = Image.new('RGBA', (text_width_sm, small_font_size + 20), (0, 0, 0, 0))
     text_draw_sm = ImageDraw.Draw(text_image_sm)
     text_draw_sm.text((0, 0), watermark_text, font=small_font, fill=color)
-    
-    # Змінено LANCZOS на BICUBIC
     rotated_sm = text_image_sm.rotate(45, resample=Image.Resampling.BICUBIC, expand=True)
     
-    # Лівий нижній
     watermark_image.paste(rotated_sm, (50, height - rotated_sm.height - 50), rotated_sm)
-    # Правий верхній
     watermark_image.paste(rotated_sm, (width - rotated_sm.width - 50, 50), rotated_sm)
     
-    # Об'єднуємо з оригіналом
     image.alpha_composite(watermark_image)
-
-def create_lightning_icon(size=24):
-    scale = 4
-    full_size = size * scale
     
-    img = Image.new('RGBA', (full_size, full_size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    cx, cy = full_size // 2, full_size // 2
-    points = [
-        (cx + 2*scale, cy - 8*scale),   
-        (cx - 6*scale, cy + 1*scale),   
-        (cx - 1*scale, cy + 1*scale),   
-        (cx - 3*scale, cy + 9*scale),   
-        (cx + 6*scale, cy - 2*scale),   
-        (cx + 1*scale, cy - 2*scale),   
-    ]
-    
-    draw.polygon(points, fill="#FFC107")
-    
-    return img.resize((size, size), Image.Resampling.LANCZOS)
-
-def create_lightning_icon(size=24):
-    scale = 4
-    full_size = size * scale
-    
-    img = Image.new('RGBA', (full_size, full_size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    cx, cy = full_size // 2, full_size // 2
-    points = [
-        (cx + 2*scale, cy - 8*scale),   
-        (cx - 6*scale, cy + 1*scale),   
-        (cx - 1*scale, cy + 1*scale),   
-        (cx - 3*scale, cy + 9*scale),   
-        (cx + 6*scale, cy - 2*scale),   
-        (cx + 1*scale, cy - 2*scale),   
-    ]
-    
-    draw.polygon(points, fill="#FFC107")
-    
-    return img.resize((size, size), Image.Resampling.LANCZOS)
-
 def generate_general_schedule_chart(region, target_day, date_str):
     prefetch_region_schedules(region)
     groups = get_groups_for_region(region)
@@ -633,12 +565,14 @@ def generate_general_schedule_chart(region, target_day, date_str):
     rname = REGIONS_CONFIG.get(region, {}).get('name', region)
     clean_rname = re.sub(r'[^\w\sа-яА-ЯіІїЇєЄґҐ.-]', '', rname).strip()
 
+    # Заголовки (ліворуч)
     draw.text((15, 15), f"{clean_rname}   {date_ua}", font=font_hdr_bold, fill=C_TEXT)
     draw.text((15, 45), "Розклад відключень на день", font=font_hdr_bold, fill=C_TEXT)
     draw.text((15, 75), "За даними обленерго", font=font_hdr, fill=C_TEXT)
 
+    # Заголовки (праворуч)
     bot_title = "СвітлоГрафіки" 
-    bot_user = "@ToeElectricity_bot"
+    bot_user = get_bot_username()
     
     w1 = int(draw.textlength(bot_title, font=font_hdr_bold))
     w2 = int(draw.textlength(bot_user, font=font_hdr))
@@ -719,37 +653,8 @@ def generate_general_schedule_chart(region, target_day, date_str):
     draw.text((15, top_margin - 20), "Група ↓", font=font_sm, fill=C_SUBTEXT)
     draw.text((15, height - bottom_margin + 8), "Група ↑", font=font_sm, fill=C_SUBTEXT)
 
-    wm_text = bot_user
-    # Big centered watermark
-    wm_font_lg = get_font(60, bold=True)
-    wm_w_lg = int(draw.textlength(wm_text, font=wm_font_lg))
-    wm_img_lg = Image.new('RGBA', (wm_w_lg, 80), (255, 255, 255, 0))
-
-    ImageDraw.Draw(wm_img_lg).text((0, 0), wm_text, font=wm_font_lg, fill=(120, 120, 120, 45)) 
-    wm_rot_lg = wm_img_lg.rotate(-30, expand=1)
-
-    # Smaller watermarks for corners
-    wm_font_sm = get_font(35, bold=True)
-    wm_w_sm = int(draw.textlength(wm_text, font=wm_font_sm))
-    wm_img_sm = Image.new('RGBA', (wm_w_sm, 50), (255, 255, 255, 0))
-    # Transpancy is set in fill color (120, 120, 120, 45)
-    ImageDraw.Draw(wm_img_sm).text((0, 0), wm_text, font=wm_font_sm, fill=(120, 120, 120, 45)) 
-    wm_rot_sm = wm_img_sm.rotate(-30, expand=1)
-    
-    # 1. centered big watermark
-    cx = width // 2 - wm_rot_lg.width // 2
-    cy = height // 2 - wm_rot_lg.height // 2
-    img.alpha_composite(wm_rot_lg, (cx, cy))
-    
-    # 2. down-left small watermark
-    bl_x = left_margin + 10
-    bl_y = height - bottom_margin - wm_rot_sm.height - 20
-    img.alpha_composite(wm_rot_sm, (int(bl_x), int(bl_y)))
-    
-    # 3. up-right small watermark
-    tr_x = width - right_margin - wm_rot_sm.width - 10
-    tr_y = top_margin + 10
-    img.alpha_composite(wm_rot_sm, (int(tr_x), int(tr_y)))
+    # Додаємо водяний знак поверх всього графіка
+    add_diagonal_watermark(img, bot_user)
 
     img = img.convert('RGB')
     buf = io.BytesIO()
@@ -1163,32 +1068,339 @@ def toggle_notifications(call):
 # ─────────────────────────────────────────────
 # Admin commands
 # ─────────────────────────────────────────────
-@bot.message_handler(commands=['stats'])
-def admin_stats(m):
-    if m.from_user.id != ADMIN_ID: 
+
+@bot.message_handler(commands=['msg_id'])
+def admin_send_private(message):
+    if message.from_user.id != ADMIN_ID:
         return
-    with sqlite3.connect(DB_FILE) as c:
-        count = c.execute('SELECT COUNT(*) FROM users').fetchone()[0]
-        bot.reply_to(m, f"Користувачів: {count}")
+    try:
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 3:
+            bot.reply_to(message, "⚠️ Формат: `/msg_id ID_ЮЗЕРА Текст`", parse_mode="Markdown")
+            return
+        target_id = int(parts[1])
+        msg_text = parts[2]
+        bot.send_message(target_id, msg_text, parse_mode="HTML")
+        bot.reply_to(message, f"✅ Відправлено `{target_id}`", parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['help'])
+def admin_help(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    help_text = """🤖 <b>Команди Адміністратора</b>
+
+📊 <b>СТАТИСТИКА:</b>
+
+/stats - Базова статистика
+├ Кількість користувачів загалом
+├ Розподіл по областях
+└ Користувачі без групи
+
+/analytics - Детальна аналітика
+├ Активні/заблоковані користувачі
+├ Користувачі з/без username
+├ Активність за 24 год / 7 днів / 30 днів
+├ Топ-5 областей за тиждень
+├ Топ-5 груп по популярності
+└ Останні 10 користувачів з часом
+
+📤 <b>ЕКСПОРТ ДАНИХ:</b>
+
+/export_no_username - Список без username
+└ До 50 користувачів без username
+
+/export_blocked - Список заблокованих
+└ Користувачі, які заблокували бота
+
+💬 <b>РОЗСИЛКА:</b>
+
+/msg_id [ID] [текст] - Надіслати одному
+└ Приклад: /msg_id 123456789 Привіт!
+
+/msg_all [текст] - Розсилка всім
+├ Відправляє всім з notifications=1
+├ Автоматично позначає заблокованих
+└ Показує статистику доставки
+
+❓ <b>ІНШЕ:</b>
+
+/help
+
+<b>💡 Підказки:</b>
+• Бот автоматично зберігає username
+• При розсилці позначає заблокованих як is_active=0
+• last_activity оновлюється при кожній дії
+• Всі повідомлення підтримують HTML розмітку"""
+    
+    bot.reply_to(message, help_text, parse_mode="HTML")
 
 @bot.message_handler(commands=['msg_all'])
-def admin_broadcast(m):
-    if m.from_user.id != ADMIN_ID: 
+def admin_send_broadcast(message):
+    if message.from_user.id != ADMIN_ID:
         return
+    try:
+        parts = message.text.split(maxsplit=1)
+        if len(parts) < 2:
+            bot.reply_to(message, "⚠️ Формат: `/msg_all Текст`", parse_mode="Markdown")
+            return
+        msg_text = parts[1]
+        users = db_get_all_users_with_groups()
+        bot.reply_to(message, f"⏳ Розсилка на {len(users)} користувачів...")
+        success = blocked = 0
         
-    parts = m.text.split(maxsplit=1)
-    if len(parts) < 2:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            for user in users:
+                user_id = user[0]
+                try:
+                    bot.send_message(user_id, msg_text, parse_mode="HTML")
+                    success += 1
+                    time.sleep(1.05)
+                except Exception as e:
+                    blocked += 1
+                    cursor.execute(
+                        "UPDATE users SET is_active = 0 WHERE user_id = ?",
+                        (user_id,)
+                    )
+                    logger.info(f"User {user_id} marked as inactive (blocked bot)")
+            
+            conn.commit()
+        
+        bot.send_message(
+            message.chat.id,
+            f"🏁 Розсилку завершено!\n✅ Отримали: {success}\n💀 Заблокували: {blocked}"
+        )
+    except Exception as e:
+        bot.reply_to(message, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['stats'])
+def admin_stats(message):
+    if message.from_user.id != ADMIN_ID:
         return
-    msg_text = parts[1]
-    
-    users = db_get_all_users_with_groups()
-    bot.reply_to(m, f"Розсилка на {len(users)}...")
-    
-    for u in users:
-        try: 
-            bot.send_message(u[0], msg_text, parse_mode="HTML")
-        except Exception: 
-            pass
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            total = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            stats_lines = [f"📊 <b>Статистика</b>\n\nВсього користувачів: {total}\n"]
+            
+            for region_key, config in sorted(REGIONS_CONFIG.items(), key=lambda x: x[1]['name']):
+                count = cursor.execute(
+                    f"SELECT COUNT(*) FROM users WHERE region=?", (region_key,)
+                ).fetchone()[0]
+                if count > 0:
+                    stats_lines.append(f"{config['name']}: {count}")
+            
+            no_group = cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE group_id IS NULL"
+            ).fetchone()[0]
+            stats_lines.append(f"\n❓ Без групи: {no_group}")
+            
+        bot.reply_to(message, "\n".join(stats_lines), parse_mode="HTML")
+    except Exception as e:
+        bot.reply_to(message, f"❌ {e}")
+
+@bot.message_handler(commands=['analytics'])
+def admin_analytics(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+
+            total = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            active = cursor.execute("SELECT COUNT(*) FROM users WHERE is_active = 1").fetchone()[0]
+            blocked = cursor.execute("SELECT COUNT(*) FROM users WHERE is_active = 0").fetchone()[0]
+            with_username = cursor.execute("SELECT COUNT(*) FROM users WHERE username IS NOT NULL").fetchone()[0]
+            without_username = cursor.execute("SELECT COUNT(*) FROM users WHERE username IS NULL").fetchone()[0]
+
+            now = datetime.now(KYIV_TZ)
+            
+            day_ago = (now - timedelta(days=1)).isoformat()
+            active_24h = cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE last_activity >= ? AND is_active = 1",
+                (day_ago,)
+            ).fetchone()[0]
+            
+            week_ago = (now - timedelta(days=7)).isoformat()
+            active_7d = cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE last_activity >= ? AND is_active = 1",
+                (week_ago,)
+            ).fetchone()[0]
+            
+            month_ago = (now - timedelta(days=30)).isoformat()
+            active_30d = cursor.execute(
+                "SELECT COUNT(*) FROM users WHERE last_activity >= ? AND is_active = 1",
+                (month_ago,)
+            ).fetchone()[0]
+
+            top_regions = cursor.execute('''
+                SELECT region, COUNT(*) as cnt 
+                FROM users 
+                WHERE last_activity >= ? AND is_active = 1
+                GROUP BY region 
+                ORDER BY cnt DESC 
+                LIMIT 5
+            ''', (week_ago,)).fetchall()
+
+            top_groups = cursor.execute('''
+                SELECT group_id, COUNT(*) as cnt 
+                FROM users 
+                WHERE group_id IS NOT NULL AND is_active = 1
+                GROUP BY group_id 
+                ORDER BY cnt DESC 
+                LIMIT 5
+            ''').fetchall()
+
+            recent_users = cursor.execute('''
+                SELECT user_id, username, region, group_id, last_activity 
+                FROM users 
+                ORDER BY last_activity DESC 
+                LIMIT 10
+            ''').fetchall()
+
+            msg = f"""📈 <b>Детальна Аналітика</b>
+
+👥 <b>Загальна статистика:</b>
+• Всього користувачів: {total}
+• ✅ Активні (не заблокували): {active} ({active*100//total if total > 0 else 0}%)
+• 🚫 Заблокували бота: {blocked} ({blocked*100//total if total > 0 else 0}%)
+• 📝 З username: {with_username} ({with_username*100//total if total > 0 else 0}%)
+• ❓ Без username: {without_username}
+
+⏰ <b>Активність:</b>
+• За останні 24 год: {active_24h}
+• За останні 7 днів: {active_7d}
+• За останні 30 днів: {active_30d}
+
+🏆 <b>Топ-5 областей (7 днів):</b>"""
+            
+            for region, cnt in top_regions:
+                region_name = REGIONS_CONFIG.get(region, {}).get('name', region)
+                msg += f"\n• {region_name}: {cnt}"
+            
+            msg += "\n\n🔢 <b>Топ-5 груп:</b>"
+            for group, cnt in top_groups:
+                msg += f"\n• Група {group}: {cnt}"
+            
+            msg += "\n\n👤 <b>Останні 10 користувачів:</b>"
+            for uid, uname, reg, grp, last_act in recent_users:
+                username_str = f"@{uname}" if uname else "без username"
+                region_name = REGIONS_CONFIG.get(reg, {}).get('name', reg) if reg else "?"
+                group_str = grp if grp else "?"
+
+                try:
+                    last_time = datetime.fromisoformat(last_act) if last_act else None
+                    if last_time:
+                        time_ago = now - last_time
+                        if time_ago.days > 0:
+                            time_str = f"{time_ago.days}д"
+                        elif time_ago.seconds // 3600 > 0:
+                            time_str = f"{time_ago.seconds // 3600}г"
+                        else:
+                            time_str = f"{time_ago.seconds // 60}хв"
+                    else:
+                        time_str = "?"
+                except:
+                    time_str = "?"
+                
+                msg += f"\n• {uid} ({username_str}) - {region_name} гр.{group_str} [{time_str}]"
+            
+        bot.reply_to(message, msg, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Analytics error: {e}")
+        bot.reply_to(message, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['export_no_username'])
+def export_no_username(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            users = cursor.execute('''
+                SELECT user_id, region, group_id, last_activity, is_active
+                FROM users 
+                WHERE username IS NULL
+                ORDER BY last_activity DESC
+            ''').fetchall()
+            
+            if not users:
+                bot.reply_to(message, "✅ Всі користувачі мають username!")
+                return
+            
+            msg = f"📋 <b>Користувачі без username: {len(users)}</b>\n\n"
+            
+            for uid, reg, grp, last_act, is_active in users[:50]:
+                status = "✅" if is_active else "🚫"
+                region_name = REGIONS_CONFIG.get(reg, {}).get('name', reg) if reg else "?"
+                group_str = grp if grp else "?"
+                
+                try:
+                    last_time = datetime.fromisoformat(last_act) if last_act else None
+                    if last_time:
+                        time_str = last_time.strftime("%d.%m %H:%M")
+                    else:
+                        time_str = "немає"
+                except:
+                    time_str = "?"
+                
+                msg += f"{status} <code>{uid}</code> | {region_name} {group_str} | {time_str}\n"
+            
+            if len(users) > 50:
+                msg += f"\n... та ще {len(users) - 50} користувачів"
+            
+        bot.reply_to(message, msg, parse_mode="HTML")
+    except Exception as e:
+        bot.reply_to(message, f"❌ {e}")
+
+@bot.message_handler(commands=['export_blocked'])
+def export_blocked(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            
+            users = cursor.execute('''
+                SELECT user_id, username, region, group_id, last_activity
+                FROM users 
+                WHERE is_active = 0
+                ORDER BY last_activity DESC
+            ''').fetchall()
+            
+            if not users:
+                bot.reply_to(message, "✅ Немає заблокованих користувачів!")
+                return
+            
+            msg = f"🚫 <b>Заблоковані користувачі: {len(users)}</b>\n\n"
+            
+            for uid, uname, reg, grp, last_act in users[:50]:
+                username_str = f"@{uname}" if uname else "немає"
+                region_name = REGIONS_CONFIG.get(reg, {}).get('name', reg) if reg else "?"
+                group_str = grp if grp else "?"
+                
+                try:
+                    last_time = datetime.fromisoformat(last_act) if last_act else None
+                    if last_time:
+                        time_str = last_time.strftime("%d.%m")
+                    else:
+                        time_str = "?"
+                except:
+                    time_str = "?"
+                
+                msg += f"<code>{uid}</code> ({username_str}) | {region_name} {group_str} | {time_str}\n"
+            
+            if len(users) > 50:
+                msg += f"\n... та ще {len(users) - 50} користувачів"
+            
+        bot.reply_to(message, msg, parse_mode="HTML")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Помилка: {e}")
 
 # ─────────────────────────────────────────────
 # Background scheduler
