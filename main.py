@@ -15,7 +15,7 @@ import re
 import concurrent.futures
 from PIL import Image, ImageDraw, ImageFont
 
-# --- Unicode fix for Debian (stdout/stderr encoding) ---
+# Unicode fix for Debian (stdout/stderr encoding)
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
     import codecs
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
@@ -31,14 +31,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "8538036698:AAECIf25f6j-Yj8qkL5HDxofaaHb2GzGFXo"
+BOT_TOKEN = "YOUR BOT TOKEN"
 DB_FILE = "bot_users.db"
-ADMIN_ID = 5292087312
+ADMIN_ID = 5292087312 # YOUR TELEGRAM ID
 
-# --- bezsvitla.com.ua base URL ---
+# bezsvitla.com.ua base URL
 BEZSVITLA_BASE = "https://bezsvitla.com.ua"
 
-# --- Ternopil API ---
+# Ternopil API
 API_BASE = "https://api-poweron.toe.com.ua/api/a_gpv_g"
 BASE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0",
@@ -131,10 +131,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 schedules_cache = {}
 last_sent_alerts = {}
 
-# ─────────────────────────────────────────────
 # DB helpers
-# ─────────────────────────────────────────────
-
 def init_db():
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -272,10 +269,7 @@ def db_get_all_users_with_groups():
     except Exception:
         return []
 
-# ─────────────────────────────────────────────
 # Group helpers
-# ─────────────────────────────────────────────
-
 def get_groups_for_region(region):
     if region == "kyiv-city":
         return [f"{i}.1" for i in range(1, KYIV_CITY_MAX_GROUP + 1)]
@@ -286,10 +280,7 @@ def _t2m(t_str):
     h, m = t_str.strip().split(":")
     return int(h) * 60 + int(m)
 
-# ─────────────────────────────────────────────
 # OPTIMIZED Schedule fetchers
-# ─────────────────────────────────────────────
-
 def fetch_and_cache_bezsvitla(region):
     today = datetime.now(KYIV_TZ)
     tomorrow = today + timedelta(days=1)
@@ -411,10 +402,7 @@ def get_cached_schedule(region, group_id):
         
     return cached
 
-# ─────────────────────────────────────────────
-# EXACT EXACT Chart generator (Pillow) - High Quality
-# ─────────────────────────────────────────────
-
+# Chart generator (Pillow)
 def create_bulb_icon(is_on, size=24):
     scale = 4
     full_size = size * scale
@@ -453,8 +441,7 @@ def create_lightning_icon(size=24):
     return img.resize((size, size), Image.Resampling.BICUBIC)
 
 def get_bot_username():
-    """Повертає ім'я бота для водяного знака"""
-    return "@ToeElectricity_bot"  # Замініть на справжній юз бота, якщо відрізняється
+    return "@ToeElectricity_bot" # bot url
 
 def add_diagonal_watermark(image, watermark_text):
     watermark_image = Image.new('RGBA', image.size, (0, 0, 0, 0))
@@ -565,12 +552,12 @@ def generate_general_schedule_chart(region, target_day, date_str):
     rname = REGIONS_CONFIG.get(region, {}).get('name', region)
     clean_rname = re.sub(r'[^\w\sа-яА-ЯіІїЇєЄґҐ.-]', '', rname).strip()
 
-    # Заголовки (ліворуч)
+    # Title left
     draw.text((15, 15), f"{clean_rname}   {date_ua}", font=font_hdr_bold, fill=C_TEXT)
     draw.text((15, 45), "Розклад відключень на день", font=font_hdr_bold, fill=C_TEXT)
     draw.text((15, 75), "За даними обленерго", font=font_hdr, fill=C_TEXT)
 
-    # Заголовки (праворуч)
+    # title right
     bot_title = "СвітлоГрафіки" 
     bot_user = get_bot_username()
     
@@ -653,7 +640,7 @@ def generate_general_schedule_chart(region, target_day, date_str):
     draw.text((15, top_margin - 20), "Група ↓", font=font_sm, fill=C_SUBTEXT)
     draw.text((15, height - bottom_margin + 8), "Група ↑", font=font_sm, fill=C_SUBTEXT)
 
-    # Додаємо водяний знак поверх всього графіка
+    # watermark
     add_diagonal_watermark(img, bot_user)
 
     img = img.convert('RGB')
@@ -662,10 +649,7 @@ def generate_general_schedule_chart(region, target_day, date_str):
     buf.seek(0)
     return buf
 
-# ─────────────────────────────────────────────
 # Schedule formatting
-# ─────────────────────────────────────────────
-
 def format_schedule_list(schedule, region):
     show_maybe = (region == "ternopil")
     
@@ -766,10 +750,7 @@ def get_current_status_message(schedule, region):
     
     return msg
 
-# ─────────────────────────────────────────────
 # Keyboard builders
-# ─────────────────────────────────────────────
-
 def main_menu_kb():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📅 Отримати графік", "💡 Стан")
@@ -810,10 +791,7 @@ def groups_kb(region="ternopil"):
             
     return markup
 
-# ─────────────────────────────────────────────
 # Bot handlers
-# ─────────────────────────────────────────────
-
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     init_db()
@@ -1064,11 +1042,8 @@ def toggle_notifications(call):
         )
     except Exception: 
         pass
-
-# ─────────────────────────────────────────────
+        
 # Admin commands
-# ─────────────────────────────────────────────
-
 @bot.message_handler(commands=['msg_id'])
 def admin_send_private(message):
     if message.from_user.id != ADMIN_ID:
@@ -1090,7 +1065,7 @@ def admin_help(message):
     if message.from_user.id != ADMIN_ID:
         return
     
-    help_text = """🤖 <b>Команди Адміністратора</b>
+    help_text = """<b>Команди Адміністратора</b>
 
 📊 <b>СТАТИСТИКА:</b>
 
@@ -1264,7 +1239,7 @@ def admin_analytics(message):
 
             msg = f"""📈 <b>Детальна Аналітика</b>
 
-👥 <b>Загальна статистика:</b>
+<b>Загальна статистика:</b>
 • Всього користувачів: {total}
 • ✅ Активні (не заблокували): {active} ({active*100//total if total > 0 else 0}%)
 • 🚫 Заблокували бота: {blocked} ({blocked*100//total if total > 0 else 0}%)
@@ -1402,10 +1377,7 @@ def export_blocked(message):
     except Exception as e:
         bot.reply_to(message, f"❌ Помилка: {e}")
 
-# ─────────────────────────────────────────────
 # Background scheduler
-# ─────────────────────────────────────────────
-
 def update_all_schedules():
     all_users = db_get_all_users_with_groups()
     needed = set((u[1], u[2]) for u in all_users if u[2])
@@ -1492,4 +1464,4 @@ if __name__ == "__main__":
             bot.infinity_polling(timeout=10, long_polling_timeout=5)
         except Exception as e: 
             logger.critical(f"Bot crash: {e}. Restarting...")
-            time.sleep(5)
+            time.sleep(8)
