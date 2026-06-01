@@ -47,6 +47,12 @@ BASE_HEADERS = {
     "Origin": "https://poweron.toe.com.ua"
 }
 
+"""
+TODO:
+1. In cause of the change of groups of power networks, it is necessary to change the keys for the Ternopil region anew...
+2. Optimize parser
+"""
+
 GROUP_CREDS = {
     "1.1": {"time": "91989283", "key": "OTE5Lzg5MjgvMw=="},
     "1.2": {"time": "1032101411", "key": "MTAzMi8xMDE0MS8x"},
